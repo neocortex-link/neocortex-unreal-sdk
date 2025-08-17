@@ -12,7 +12,7 @@ DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnTextChatSend, const FString&, Mes
  * Neocortex-style text chat input widget (Unreal equivalent of Unity version)
  */
 UCLASS()
-class Neocortex_API UNeocortexTextChatInput : public UUserWidget
+class NEOCORTEX_API UNeocortexTextChatInput : public UUserWidget
 {
 	GENERATED_BODY()
 

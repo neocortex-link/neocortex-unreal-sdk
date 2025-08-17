@@ -8,15 +8,15 @@
 DECLARE_DELEGATE_OneParam(FEditorSettingsChanged, const FName&);
 #endif
 
-UCLASS(config=Game, defaultconfig, meta = (DisplayName="Neocortex"))
-class Neocortex_API UNeocortexSettings : public UDeveloperSettings
+UCLASS(config=Game, defaultconfig, meta = (DisplayName="NeoCortex"))
+class NEOCORTEX_API UNeocortexSettings : public UDeveloperSettings
 {
 	GENERATED_BODY()
 
 public:
 	UNeocortexSettings();
 
-	UPROPERTY(Config, EditAnywhere, BlueprintReadWrite, Category = "Settings", meta = (DisplayName = "API Key", ToolTip = "The API Key is used to authenticate your application with the Neocortex API. You can find it in your Neocortex account settings."))
+	UPROPERTY(Config, EditAnywhere, BlueprintReadWrite, Category = "Settings", meta = (DisplayName = "API Key", ToolTip = "The API Key is used to authenticate your application with the NeoCortex API. You can find it in your NeoCortex account settings."))
 	FString ApiKey;
 
 #if WITH_EDITOR

@@ -17,7 +17,7 @@ enum class EThinkingIndicatorState : uint8
 };
 
 UCLASS()
-class Neocortex_API UNeocortexThinkingIndicatorWidget : public UUserWidget
+class NEOCORTEX_API UNeocortexThinkingIndicatorWidget : public UUserWidget
 {
 	GENERATED_BODY()
 

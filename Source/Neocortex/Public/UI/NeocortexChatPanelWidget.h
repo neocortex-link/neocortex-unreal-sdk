@@ -8,7 +8,7 @@
 class UNeocortexChatMessageWidget;
 
 UCLASS()
-class Neocortex_API UNeocortexChatPanelWidget : public UUserWidget
+class NEOCORTEX_API UNeocortexChatPanelWidget : public UUserWidget
 {
 	GENERATED_BODY()
 

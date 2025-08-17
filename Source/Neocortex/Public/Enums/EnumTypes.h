@@ -11,8 +11,7 @@ UENUM(BlueprintType)
 enum class EApiResponseDataType : uint8
 {
 	Text,
-	Audio,
-	Texture
+	Audio
 };
 
 UENUM(BlueprintType)

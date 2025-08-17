@@ -4,7 +4,7 @@
 #include "FloatArray.generated.h"
 
 USTRUCT(BlueprintType)
-struct Neocortex_API FFloatArray
+struct NEOCORTEX_API FFloatArray
 {
 	GENERATED_BODY()
 

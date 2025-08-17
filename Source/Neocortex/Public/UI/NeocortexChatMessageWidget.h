@@ -8,7 +8,7 @@
 #include "NeocortexChatMessageWidget.generated.h"
 
 UCLASS()
-class Neocortex_API UNeocortexChatMessageWidget : public UUserWidget
+class NEOCORTEX_API UNeocortexChatMessageWidget : public UUserWidget
 {
 	GENERATED_BODY()
 

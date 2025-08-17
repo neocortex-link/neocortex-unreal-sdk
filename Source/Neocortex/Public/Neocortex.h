@@ -5,7 +5,9 @@
 #include "CoreMinimal.h"
 #include "Modules/ModuleManager.h"
 
-class FNeocortexModule : public IModuleInterface
+NEOCORTEX_API DECLARE_LOG_CATEGORY_EXTERN(LogNeocortex, Log, All);
+
+class NEOCORTEX_API FNeocortexModule : public IModuleInterface
 {
 public:
 
