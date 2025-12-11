@@ -2,7 +2,9 @@
 
 #include "Neocortex.h"
 
-#define LOCTEXT_NAMESPACE "FNeocortexModule"
+DEFINE_LOG_CATEGORY(LogNeocortex)
+
+#define LOCTEXT_NAMESPACE "FNeoCortexModule"
 
 void FNeocortexModule::StartupModule()
 {
@@ -17,4 +19,4 @@ void FNeocortexModule::ShutdownModule()
 
 #undef LOCTEXT_NAMESPACE
 	
-IMPLEMENT_MODULE(FNeocortexModule, Neocortex)
+IMPLEMENT_MODULE(FNeocortexModule, NeoCortex)

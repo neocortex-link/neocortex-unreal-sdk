@@ -6,34 +6,45 @@
 #include "Components/Button.h"
 #include "NeocortexTextChatInput.generated.h"
 
+/** Delegate broadcast when user submits a chat message. */
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnTextChatSend, const FString&, Message);
 
 /**
- * Neocortex-style text chat input widget (Unreal equivalent of Unity version)
+ * Text chat input widget for sending messages to AI characters.
+ * Provides a text field and send button, supporting both button clicks and Enter key submission.
  */
 UCLASS()
-class Neocortex_API UNeocortexTextChatInput : public UUserWidget
+class NEOCORTEX_API UNeocortexTextChatInput : public UUserWidget
 {
 	GENERATED_BODY()
 
 public:
-	UPROPERTY(meta = (BindWidget))
+	/** Editable text field for user input. */
+	UPROPERTY(BlueprintReadOnly, meta = (BindWidget))
 	UEditableTextBox* InputField;
 
-	UPROPERTY(meta = (BindWidget))
+	/** Button to submit the chat message. */
+	UPROPERTY(BlueprintReadOnly, meta = (BindWidget))
 	UButton* SendButton;
 
+	/** Event fired when user submits a message via button or Enter key. */
 	UPROPERTY(BlueprintAssignable, Category = "Events")
-	FOnTextChatSend OnSendButtonClicked;
+	FOnTextChatSend OnSendText;
 
 protected:
 	virtual void NativeConstruct() override;
 
 	virtual void NativeDestruct() override;
 
+	/** Handles send button click events. */
 	UFUNCTION()
 	void HandleSendClicked();
 
+	/**
+	 * Handles text field commit events (Enter key press).
+	 * @param Text The submitted text content
+	 * @param CommitMethod How the text was committed (e.g., OnEnter, OnUserMovedFocus)
+	 */
 	UFUNCTION()
 	void HandleTextCommitted(const FText& Text, ETextCommit::Type CommitMethod);
 };

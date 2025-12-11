@@ -1,27 +1,37 @@
-﻿#pragma once
+#pragma once
 
-#include "CoreMinimal.h"
 #include "Subsystems/GameInstanceSubsystem.h"
-#include "ChatResponse.h"
-#include "Sound/SoundWave.h"
 #include "NeocortexSubsystem.generated.h"
 
-
-struct FNeocortexResponseHandler;
-
+/**
+ * Game instance subsystem managing Neocortex service lifecycle and dependencies.
+ * Provides centralized access to HTTP client, session manager, and service layer.
+ * Automatically initializes and cleans up on game instance start/end.
+ */
 UCLASS()
-class Neocortex_API UNeocortexSubsystem : public UGameInstanceSubsystem
+class NEOCORTEX_API UNeocortexSubsystem : public UGameInstanceSubsystem
 {
 	GENERATED_BODY()
-
 public:
+	virtual void Initialize(FSubsystemCollectionBase& Collection) override;
 	virtual void Deinitialize() override;
-	
-	void SendTextRequest(const FString& ProjectId, const FString& Text, bool bExpectAudio, FNeocortexResponseHandler Handler);
-	void SendAudioRequest(const FString& ProjectId, USoundWave* SoundWave, bool bExpectAudio, FNeocortexResponseHandler Handler);
+
+	/** Returns the Neocortex service instance for API interactions. */
+	class UNeocortexService* GetService() const { return Service; }
+    
+	/** Returns the session manager for persistent character sessions. */
+	class UNeocortexSessionManager* GetSessionManager() const { return SessionManager; }
 
 private:
-	TArray<TSharedPtr<class FApiRequest>> ActiveRequests;
+	/** HTTP client for API communication. */
+	UPROPERTY()
+	class UNeocortexHttpClient* Http = nullptr;
 
-	TSharedPtr<FApiRequest> CreateRequest();
+	/** Session manager for character state persistence. */
+	UPROPERTY()
+	class UNeocortexSessionManager* SessionManager = nullptr;
+
+	/** Service layer for Neocortex API operations. */
+	UPROPERTY()
+	class UNeocortexService* Service = nullptr;
 };
