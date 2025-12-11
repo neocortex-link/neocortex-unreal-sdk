@@ -15,7 +15,6 @@ cd YourProject
 mkdir Plugins
 cd Plugins
 git clone https://github.com/neocortex-link/neocortex-unreal-sdk Neocortex
-Your project structure should look like:
 ```
 Your project structure should look like:
 ```text
