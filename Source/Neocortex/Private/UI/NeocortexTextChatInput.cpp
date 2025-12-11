@@ -35,7 +35,7 @@ void UNeocortexTextChatInput::HandleSendClicked()
 	const FString Text = InputField->GetText().ToString();
 	if (!Text.IsEmpty())
 	{
-		OnSendButtonClicked.Broadcast(Text);
+		OnSendText.Broadcast(Text);
 		InputField->SetText(FText::GetEmpty());
 	}
 }

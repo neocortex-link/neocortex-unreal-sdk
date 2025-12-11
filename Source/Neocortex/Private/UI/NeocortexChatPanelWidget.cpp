@@ -1,8 +1,17 @@
 ﻿#include "UI/NeocortexChatPanelWidget.h"
+
+#include "NeocortexTypes.h"
 #include "Components/ScrollBox.h"
 #include "Kismet/KismetSystemLibrary.h"
 #include "TimerManager.h"
 #include "UI/NeocortexChatMessageWidget.h"
+
+void UNeocortexChatPanelWidget::CreateWritingIndicatorWidget()
+{
+	WritingIndicator = CreateWidget<UNeocortexChatMessageWidget>(this, WritingIndicatorClass);
+	ChatScrollBox->AddChild(WritingIndicator);
+	WritingIndicator->SetVisibility(ESlateVisibility::Collapsed);
+}
 
 void UNeocortexChatPanelWidget::NativeConstruct()
 {
@@ -11,9 +20,7 @@ void UNeocortexChatPanelWidget::NativeConstruct()
 	// Instantiate the typing indicator once
 	if (WritingIndicatorClass && ChatScrollBox)
 	{
-		WritingIndicator = CreateWidget<UNeocortexChatMessageWidget>(this, WritingIndicatorClass);
-		ChatScrollBox->AddChild(WritingIndicator);
-		WritingIndicator->SetVisibility(ESlateVisibility::Collapsed);
+		CreateWritingIndicatorWidget();
 	}
 }
 
@@ -47,6 +54,32 @@ void UNeocortexChatPanelWidget::AddMessage(const FString& Text, bool bIsUser)
 	// Scroll after layout pass
 	FTimerHandle ScrollTimer;
 	GetWorld()->GetTimerManager().SetTimer(ScrollTimer, this, &UNeocortexChatPanelWidget::ScrollToBottom, 0.01f, false);
+}
+
+void UNeocortexChatPanelWidget::AddChatHistory(const TArray<FNeocortexChatMessage>& Messages)
+{
+	if (!Messages.IsEmpty()) 
+	{
+		for (const FNeocortexChatMessage& Message : Messages)
+		{
+			AddMessage(Message.Content, Message.Sender == TEXT("USER"));
+		}
+	}
+	
+}
+
+void UNeocortexChatPanelWidget::ClearChatMessages()
+{
+	if (ChatScrollBox)
+	{
+		ChatScrollBox->ClearChildren();
+
+		// Re-add the writing indicator
+		if (WritingIndicatorClass && ChatScrollBox)
+		{
+			CreateWritingIndicatorWidget();
+		}
+	}
 }
 
 void UNeocortexChatPanelWidget::ScrollToBottom()
