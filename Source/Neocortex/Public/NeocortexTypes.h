@@ -1,5 +1,6 @@
 #pragma once
 #include "CoreMinimal.h"
+#include "JsonObjectConverter.h"
 #include "Enums/NeocortexEnumTypes.h"
 #include "NeocortexTypes.generated.h"
 
@@ -111,4 +112,47 @@ struct NEOCORTEX_API FNeocortexAudioTranscribeResponseData {
     /** Transcribed text from audio input. */
     UPROPERTY(BlueprintReadOnly, meta=(JsonKey="response"))
     FString Response;
+};
+
+
+UENUM(BlueprintType)
+enum EFNeocortexInteractableType
+{
+    Character        UMETA(DisplayName = "Character"),
+    Object      UMETA(DisplayName = "OBJECT")
+};
+
+USTRUCT(BlueprintType)
+struct NEOCORTEX_API FNeocortexInteractableProperty
+{
+    GENERATED_BODY()
+    
+    UPROPERTY(BlueprintReadOnly, meta=(JsonKey="name")) 
+    FString Name;
+    UPROPERTY(BlueprintReadOnly, meta=(JsonKey="value"))
+    FString Value;
+};
+
+USTRUCT(BlueprintType)
+struct NEOCORTEX_API FNeocortexInteractable
+{
+    GENERATED_BODY()
+    
+    UPROPERTY(BlueprintReadOnly, meta=(JsonKey="type"))
+    FString Type;
+    UPROPERTY(BlueprintReadOnly, meta=(JsonKey="name"))
+    FString Name;
+    UPROPERTY(BlueprintReadOnly, meta=(JsonKey="isSubject"))
+    bool IsSubject;
+    UPROPERTY(BlueprintReadOnly, meta=(JsonKey="position"))
+    FVector Position;
+    UPROPERTY(BlueprintReadOnly, meta=(JsonKey="properties"))
+    TArray<FNeocortexInteractableProperty> Properties;
+    
+    FString ToJsonString() const
+    { 
+        FString JsonString;
+        FJsonObjectConverter::UStructToJsonObjectString(*this, JsonString);
+        return JsonString;
+    }
 };
