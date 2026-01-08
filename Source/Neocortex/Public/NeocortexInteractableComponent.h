@@ -4,6 +4,11 @@
 #include "Components/ActorComponent.h"
 #include "NeocortexInteractableComponent.generated.h"
 
+/**
+ * Component marking an actor as interactable within the Neocortex world state.
+ * Automatically registers with the subsystem on BeginPlay and unregisters on EndPlay.
+ * Used to provide contextual information to AI agents about objects in the world.
+ */
 UCLASS(ClassGroup=(Neocortex), meta=(BlueprintSpawnableComponent))
 class NEOCORTEX_API UNeocortexInteractableComponent : public UActorComponent
 {
@@ -11,17 +16,29 @@ class NEOCORTEX_API UNeocortexInteractableComponent : public UActorComponent
 public:
 	UNeocortexInteractableComponent();
 	
-	UPROPERTY(EditAnywhere, BlueprintReadOnly)
+	/** Type classification of this interactable (e.g., "Character", "Object", "Item"). */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Neocortex")
 	FString Type; 
 	
-	UPROPERTY(EditAnywhere, BlueprintReadOnly)
+	/** Display name of this interactable. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Neocortex")
 	FString Name;
 	
-	UPROPERTY(EditAnywhere, BlueprintReadOnly)
+	/** Whether this interactable is the subject of agent focus. */
+	UPROPERTY(BlueprintReadOnly, Category = "Neocortex")
 	bool IsSubject;
 	
-	UPROPERTY(EditAnywhere, BlueprintReadOnly)
+	/** Custom properties providing additional context about this interactable. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Neocortex")
 	TArray<FNeocortexInteractableProperty> Properties;
 	
+	/**
+	 * Converts this component's data to a serializable interactable structure.
+	 * @return Interactable data with current actor position
+	 */
 	FNeocortexInteractable ToNeocortexInteractable() const;
+
+protected:
+	virtual void BeginPlay() override;
+	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
 };

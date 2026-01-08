@@ -20,25 +20,34 @@ FNeocortexRequestError UNeocortexService::MakeError(const FString& Where, const 
     return E;
 }
 
-void UNeocortexService::TextToText(const FString& CharacterId, const FString& Message, FNeocortexChatDelegate OnChatResponse, FNeocortexErrorDelegate OnFail)
+void UNeocortexService::TextToText(const FString& CharacterId, const FString& Message, FNeocortexChatDelegate OnChatResponse, FNeocortexErrorDelegate OnFail, const FString& Metadata)
 {
     if (CharacterId.IsEmpty())
     {
         OnFail.ExecuteIfBound({-1, TEXT("characterId required")});
         return;
     }
-    const FNeocortexChatRequest Req { 
-        SessionRef->Get(CharacterId), 
-        CharacterId, 
-        Message 
-    };
     
+    // Build JSON manually to match Unity SDK behavior
+    TSharedRef<FJsonObject> JsonObject = MakeShared<FJsonObject>();
+    JsonObject->SetStringField(TEXT("sessionId"), SessionRef->Get(CharacterId));
+    JsonObject->SetStringField(TEXT("characterId"), CharacterId);
+    JsonObject->SetStringField(TEXT("message"), Message);
+    
+    // Set metadata as string field (empty string or JSON string, matching Unity SDK)
+    // Unity sends: metadata: "" (no interactables) or metadata: "[{...}]" (with interactables)
+    JsonObject->SetStringField(TEXT("metadata"), Metadata.IsEmpty() ? TEXT("") : Metadata);
+    
+    // Serialize to compact JSON
     FString Body;
-    if (!FNeocortexSerializer::ToJson(Req, Body))
+    TSharedRef<TJsonWriter<TCHAR, TCondensedJsonPrintPolicy<TCHAR>>> Writer =
+        TJsonWriterFactory<TCHAR, TCondensedJsonPrintPolicy<TCHAR>>::Create(&Body);
+    if (!FJsonSerializer::Serialize(JsonObject, Writer))
     {
         OnFail.ExecuteIfBound({-1, TEXT("serialize /chat failed")});
         return;
     }
+
     TWeakObjectPtr<UNeocortexService> WeakThis(this);
     HttpRef->PostJson(TEXT("chat"), Body, TEXT("application/json"),
         FNeocortexHttpRawDelegate::CreateLambda([WeakThis, CharacterId, OnChatResponse, OnFail](const FString& Raw, const FHttpResponsePtr& Resp)
@@ -46,6 +55,10 @@ void UNeocortexService::TextToText(const FString& CharacterId, const FString& Me
             if (!WeakThis.IsValid()) return;
             if (!Resp.IsValid() || !EHttpResponseCodes::IsOk(Resp->GetResponseCode()))
             {
+                // Log the error response body for debugging
+                FString ErrorBody = Resp.IsValid() ? Resp->GetContentAsString() : TEXT("No response");
+                UE_LOG(LogNeocortex, Error, TEXT("POST /chat failed with code %d: %s"), 
+                    Resp.IsValid() ? Resp->GetResponseCode() : -1, *ErrorBody);
                 OnFail.ExecuteIfBound(WeakThis->MakeError(TEXT("POST /chat"), Resp, Resp.IsValid()));
                 return;
             }
@@ -63,7 +76,7 @@ void UNeocortexService::TextToText(const FString& CharacterId, const FString& Me
         }));
 }
 
-void UNeocortexService::TextToAudio(const FString& CharacterId, const FString& Message, FNeocortexChatDelegate OnChatResponse, FNeocortexAudioDelegate OnAudioResponse, FNeocortexErrorDelegate OnFail)
+void UNeocortexService::TextToAudio(const FString& CharacterId, const FString& Message, FNeocortexChatDelegate OnChatResponse, FNeocortexAudioDelegate OnAudioResponse, FNeocortexErrorDelegate OnFail, const FString& Metadata)
 {
     UE_LOG(LogNeocortex, Log, TEXT("TextToAudio request: characterId=%s, message=%s"), *CharacterId, *Message);
     TextToText(CharacterId, Message,
@@ -94,7 +107,8 @@ void UNeocortexService::TextToAudio(const FString& CharacterId, const FString& M
                     OnAudioResponse.ExecuteIfBound(Resp->GetContent());
                 }));
         }),
-        OnFail);
+        OnFail,
+        Metadata);
 }
 
 void UNeocortexService::AudioToText(const FString& CharacterId, const TArray<uint8>& WavBytes, FNeocortexTranscribeDelegate OnTranscribeResponse, FNeocortexErrorDelegate OnFail)

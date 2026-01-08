@@ -42,21 +42,7 @@ YourProject/
   ]
 }
 ```
-**2. Enable the Plugin**
-   - Open your project's .uproject file in a text editor
-   - Add the plugin to the Plugins array (create it if it doesn't exist):
-```json
-{
-  "FileVersion": 3,
-  "EngineAssociation": "5.x",
-  "Plugins": [
-    {
-      "Name": "Neocortex",
-      "Enabled": true
-    }
-  ]
-}
-```
+
 **3. Add Plugin Dependency**
    - Open your project's Source/YourProject/YourProject.Build.cs and add "Neocortex" to your module dependencies:
 ```text

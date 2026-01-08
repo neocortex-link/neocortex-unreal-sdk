@@ -23,9 +23,26 @@ void UNeocortexSmartAgent::ResolveService()
             if (UNeocortexSubsystem* Sub = GI->GetSubsystem<UNeocortexSubsystem>())
             {
                 Service = Sub->GetService();
+                Subsystem = Sub;
             }
         }
     }
+}
+
+FString UNeocortexSmartAgent::GetMetadata() const
+{
+    if (!bIncludeAllInteractables || !Subsystem.IsValid())
+    {
+        return TEXT("");
+    }
+
+    if (bUseRadiusFilter && GetOwner())
+    {
+        const FVector Location = GetOwner()->GetActorLocation();
+        return Subsystem->CreateInteractablesMetadataInRadius(Location, SearchRadius);
+    }
+
+    return Subsystem->CreateInteractablesMetadata();
 }
 
 void UNeocortexSmartAgent::SendMessage(const FString& Message)
@@ -37,11 +54,13 @@ void UNeocortexSmartAgent::SendMessage(const FString& Message)
         return;
     }
 
+    const FString Metadata = GetMetadata();
     Service->TextToText(
         ProjectId,
         Message,
         FNeocortexChatDelegate::CreateUObject(this, &UNeocortexSmartAgent::OnChatResponse),
-        FNeocortexErrorDelegate::CreateUObject(this, &UNeocortexSmartAgent::OnChatFail));
+        FNeocortexErrorDelegate::CreateUObject(this, &UNeocortexSmartAgent::OnChatFail),
+        Metadata);
 }
 
 void UNeocortexSmartAgent::SendMessageForAudio(const FString& Message)
@@ -53,12 +72,14 @@ void UNeocortexSmartAgent::SendMessageForAudio(const FString& Message)
         return;
     } 
 
+    const FString Metadata = GetMetadata();
     Service->TextToAudio(
         ProjectId,
         Message,
         FNeocortexChatDelegate::CreateUObject(this, &UNeocortexSmartAgent::OnChatResponse),
         FNeocortexAudioDelegate::CreateUObject(this, &UNeocortexSmartAgent::OnAudioResponse),        
-        FNeocortexErrorDelegate::CreateUObject(this, &UNeocortexSmartAgent::OnServiceFail));
+        FNeocortexErrorDelegate::CreateUObject(this, &UNeocortexSmartAgent::OnServiceFail),
+        Metadata);
 }
 
 void UNeocortexSmartAgent::TranscribeBytes(const TArray<uint8>& Data)
@@ -133,7 +154,7 @@ void UNeocortexSmartAgent::ClearSessionId()
 void UNeocortexSmartAgent::OnChatResponse(const FNeocortexChatResponseData& ChatResponse) const
 {
     //TODO: handle empty response
-    OnChat.Broadcast(ChatResponse.Response);
+    OnChat.Broadcast(ChatResponse);
 }
 
 void UNeocortexSmartAgent::OnChatFail(const FNeocortexRequestError& RequestError) const

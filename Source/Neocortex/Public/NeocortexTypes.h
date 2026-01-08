@@ -4,6 +4,52 @@
 #include "Enums/NeocortexEnumTypes.h"
 #include "NeocortexTypes.generated.h"
 
+UENUM(BlueprintType)
+enum EFNeocortexInteractableType
+{
+    Character        UMETA(DisplayName = "Character"),
+    Object      UMETA(DisplayName = "OBJECT")
+};
+
+/** A key-value property pair for describing interactable characteristics. */
+USTRUCT(BlueprintType)
+struct NEOCORTEX_API FNeocortexInteractableProperty
+{
+    GENERATED_BODY()
+    
+    /** Property name/key (e.g., "Color", "Health", "State"). */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, meta=(JsonKey="name")) 
+    FString Name;
+    
+    /** Property value (e.g., "Red", "100", "Open"). */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, meta=(JsonKey="value"))
+    FString Value;
+};
+
+USTRUCT(BlueprintType)
+struct NEOCORTEX_API FNeocortexInteractable
+{
+    GENERATED_BODY()
+    
+    UPROPERTY(BlueprintReadOnly, meta=(JsonKey="type"))
+    FString Type;
+    UPROPERTY(BlueprintReadOnly, meta=(JsonKey="name"))
+    FString Name;
+    UPROPERTY(BlueprintReadOnly, meta=(JsonKey="isSubject"))
+    bool IsSubject;
+    UPROPERTY(BlueprintReadOnly, meta=(JsonKey="position"))
+    FVector Position;
+    UPROPERTY(BlueprintReadOnly, meta=(JsonKey="properties"))
+    TArray<FNeocortexInteractableProperty> Properties;
+    
+    FString ToJsonString() const
+    { 
+        FString JsonString;
+        FJsonObjectConverter::UStructToJsonObjectString(*this, JsonString);
+        return JsonString;
+    }
+};
+
 /** Represents an error response from a Neocortex API request. */
 USTRUCT(BlueprintType)
 struct NEOCORTEX_API FNeocortexRequestError {
@@ -34,6 +80,10 @@ struct NEOCORTEX_API FNeocortexChatRequest {
     /** Required user message text. */
     UPROPERTY(EditAnywhere, BlueprintReadWrite, meta=(JsonKey="message"))
     FString Message;
+    
+    /** JSON string containing world context metadata. */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, meta=(JsonKey="metadata"))
+    FString Metadata;
 };
 
 /** Response data from a chat interaction. */
@@ -56,6 +106,9 @@ struct NEOCORTEX_API FNeocortexChatResponseData {
     /** Character's emotional state. */
     UPROPERTY(BlueprintReadOnly, meta=(JsonKey="emotion"))
     EEmotions Emotions;
+    
+    UPROPERTY(BlueprintReadOnly, meta=(JsonKey="metadata"))
+    TArray<FNeocortexInteractable> Metadata;
 };
 
 /** Request payload for retrieving chat history. */
@@ -112,47 +165,4 @@ struct NEOCORTEX_API FNeocortexAudioTranscribeResponseData {
     /** Transcribed text from audio input. */
     UPROPERTY(BlueprintReadOnly, meta=(JsonKey="response"))
     FString Response;
-};
-
-
-UENUM(BlueprintType)
-enum EFNeocortexInteractableType
-{
-    Character        UMETA(DisplayName = "Character"),
-    Object      UMETA(DisplayName = "OBJECT")
-};
-
-USTRUCT(BlueprintType)
-struct NEOCORTEX_API FNeocortexInteractableProperty
-{
-    GENERATED_BODY()
-    
-    UPROPERTY(BlueprintReadOnly, meta=(JsonKey="name")) 
-    FString Name;
-    UPROPERTY(BlueprintReadOnly, meta=(JsonKey="value"))
-    FString Value;
-};
-
-USTRUCT(BlueprintType)
-struct NEOCORTEX_API FNeocortexInteractable
-{
-    GENERATED_BODY()
-    
-    UPROPERTY(BlueprintReadOnly, meta=(JsonKey="type"))
-    FString Type;
-    UPROPERTY(BlueprintReadOnly, meta=(JsonKey="name"))
-    FString Name;
-    UPROPERTY(BlueprintReadOnly, meta=(JsonKey="isSubject"))
-    bool IsSubject;
-    UPROPERTY(BlueprintReadOnly, meta=(JsonKey="position"))
-    FVector Position;
-    UPROPERTY(BlueprintReadOnly, meta=(JsonKey="properties"))
-    TArray<FNeocortexInteractableProperty> Properties;
-    
-    FString ToJsonString() const
-    { 
-        FString JsonString;
-        FJsonObjectConverter::UStructToJsonObjectString(*this, JsonString);
-        return JsonString;
-    }
 };
