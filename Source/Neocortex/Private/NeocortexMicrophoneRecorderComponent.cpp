@@ -18,23 +18,15 @@ void UNeocortexMicrophoneRecorderComponent::BeginPlay()
 		Recorder->ListInputDevices();
 	}
 
-	UE_LOG(LogNeocortex, Warning, TEXT("BeginPlay - SmartAgent before check: %s"), SmartAgent ? *SmartAgent->GetName() : TEXT("nullptr"));
     
 	if (SmartAgent)
 	{
-		UE_LOG(LogNeocortex, Warning, TEXT("SmartAgent already set, Owner: %s"), SmartAgent->GetOwner() ? *SmartAgent->GetOwner()->GetName() : TEXT("nullptr"));
 		return;
 	}
 
 	if (AActor* Owner = GetOwner())
 	{
-		UE_LOG(LogNeocortex, Warning, TEXT("Searching for SmartAgent on Owner: %s"), *Owner->GetName());
 		SmartAgent = Owner->FindComponentByClass<UNeocortexSmartAgent>();
-        
-		if (SmartAgent)
-		{
-			UE_LOG(LogNeocortex, Warning, TEXT("Found SmartAgent: %s"), *SmartAgent->GetName());
-		}
 	}
 
 	if (!SmartAgent)
