@@ -36,7 +36,7 @@ public:
     FOnVoiceWavReady OnWavReady;
 
     /** Optional SmartAgent reference for automatic transcription when recording stops. */
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Neocortex", meta=(UseComponentPicker))
+    UPROPERTY(VisibleAnywhere, BlueprintReadWrite, Category="Neocortex")
     TObjectPtr<UNeocortexSmartAgent> SmartAgent;
 
     /** Target sample rate in Hz (default 16000 for speech recognition). */
