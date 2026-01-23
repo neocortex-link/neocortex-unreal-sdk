@@ -42,11 +42,13 @@ public:
      * @param Message User's text message
      * @param OnChatResponse Callback invoked with the character's response
      * @param OnFail Callback invoked if the request fails
+     * @param Metadata Optional JSON metadata about world state/interactables
      */
     void TextToText(const FString& CharacterId,
                     const FString& Message,
                     FNeocortexChatDelegate OnChatResponse,
-                    FNeocortexErrorDelegate OnFail);
+                    FNeocortexErrorDelegate OnFail,
+                    const FString& Metadata = TEXT(""));
 
     /**
      * Sends a text message and receives both text and audio responses from a character.
@@ -55,12 +57,14 @@ public:
      * @param OnChatResponse Callback invoked with the character's text response
      * @param OnAudioResponse Callback invoked with the character's audio response
      * @param OnFail Callback invoked if the request fails
+     * @param Metadata Optional JSON metadata about world state/interactables
      */
     void TextToAudio(const FString& CharacterId,
                      const FString& Message,
                      FNeocortexChatDelegate OnChatResponse,
                      FNeocortexAudioDelegate OnAudioResponse,
-                     FNeocortexErrorDelegate OnFail);
+                     FNeocortexErrorDelegate OnFail,
+                     const FString& Metadata = TEXT(""));
 
     /**
      * Transcribes audio input to text for a character conversation.

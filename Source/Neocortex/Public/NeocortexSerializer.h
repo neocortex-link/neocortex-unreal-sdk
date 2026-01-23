@@ -15,7 +15,7 @@
 struct FNeocortexSerializer
 {
     /**
-     * Serializes a UStruct to a JSON string.
+     * Serializes a UStruct to a JSON string using compact formatting (no pretty-printing).
      * @param Obj The UStruct object to serialize
      * @param Out The resulting JSON string (output parameter)
      * @return True if serialization succeeded, false otherwise
@@ -23,9 +23,25 @@ struct FNeocortexSerializer
     template<typename T>
     static bool ToJson(const T& Obj, FString& Out)
     {
-        FJsonObjectConverter::UStructToJsonObjectString(Obj, Out);
-        UE_LOG(LogNeocortex, VeryVerbose, TEXT("[FNeocortexSerialize] ToJson input struct: %s"), *Out);
-        return FJsonObjectConverter::UStructToJsonObjectString(Obj, Out);
+        // Convert UStruct to JsonObject
+        TSharedPtr<FJsonObject> JsonObject = FJsonObjectConverter::UStructToJsonObject(Obj);
+        if (!JsonObject.IsValid())
+        {
+            UE_LOG(LogNeocortex, Warning, TEXT("[FNeocortexSerialize] ToJson: Failed to convert struct to JSON object"));
+            return false;
+        }
+        
+        // Serialize with compact formatting (no pretty-printing)
+        TSharedRef<TJsonWriter<TCHAR, TCondensedJsonPrintPolicy<TCHAR>>> Writer =
+            TJsonWriterFactory<TCHAR, TCondensedJsonPrintPolicy<TCHAR>>::Create(&Out);
+        if (!FJsonSerializer::Serialize(JsonObject.ToSharedRef(), Writer))
+        {
+            UE_LOG(LogNeocortex, Warning, TEXT("[FNeocortexSerialize] ToJson: Failed to serialize JSON object"));
+            return false;
+        }
+        
+        UE_LOG(LogNeocortex, VeryVerbose, TEXT("[FNeocortexSerialize] ToJson output: %s"), *Out);
+        return true;
     }
 
     /**

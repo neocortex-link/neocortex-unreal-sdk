@@ -12,25 +12,29 @@ void UNeocortexMicrophoneRecorderComponent::BeginPlay()
 {
 	Super::BeginPlay();
 	Recorder = MakeUnique<FNeocortexMicrophoneRecorder>(SampleRate, NumChannels);
-	
+
 	if (Recorder.IsValid())
 	{
 		Recorder->ListInputDevices();
 	}
-	
-	if (SmartAgent) return;
 
-	// Cache existing smart agent; do not create a new one.
-	if (const AActor* Owner = GetOwner())
+    
+	if (SmartAgent)
+	{
+		return;
+	}
+
+	if (AActor* Owner = GetOwner())
 	{
 		SmartAgent = Owner->FindComponentByClass<UNeocortexSmartAgent>();
 	}
-	
+
 	if (!SmartAgent)
 	{
-		UE_LOG( LogNeocortex, Log, TEXT("No SmartAgent assigned or found on owner; transcription disabled"));
+		UE_LOG(LogNeocortex, Log, TEXT("No SmartAgent assigned or found on owner; transcription disabled"));
 	}
 }
+
 
 void UNeocortexMicrophoneRecorderComponent::EndPlay(const EEndPlayReason::Type EndPlayReason)
 {
