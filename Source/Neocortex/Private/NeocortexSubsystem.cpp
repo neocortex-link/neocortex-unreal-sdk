@@ -6,8 +6,13 @@
 #include "NeocortexInteractableComponent.h"
 #include "Neocortex.h"
 #include "Dom/JsonObject.h"
+#include "JsonObjectConverter.h"
 #include "Serialization/JsonSerializer.h"
 #include "Serialization/JsonWriter.h"
+#include "Policies/CondensedJsonPrintPolicy.h"
+
+static constexpr int32 MaxEvents      = 20;
+static constexpr int32 MaxContentLen  = 64;
 
 void UNeocortexSubsystem::Initialize(FSubsystemCollectionBase& Collection)
 {
@@ -21,16 +26,28 @@ void UNeocortexSubsystem::Initialize(FSubsystemCollectionBase& Collection)
 	Options.TimeoutSeconds = 30;
 	Options.MaxRetries = 2;
 	Options.RetryBackoffSeconds = 0.5f;
-	Options.ApiKey = GetDefault<UNeocortexSettings>()->ApiKey;
 
-	Http->Init(TEXT("https://neocortex.link/api/v2"), Options);
+	Http->Init(TEXT("https://api.neocortex.link/v2"), Options);
 	SessionManager->Init(TEXT("NeocortexSessions"), TEXT("Session_"));
 	Service->Init(Http, SessionManager);
+
+#if WITH_EDITOR
+	// Propagate API key changes made in Project Settings without requiring a restart.
+	GetMutableDefault<UNeocortexSettings>()->SettingsChanged.BindLambda([this](const FName& PropertyName)
+	{
+		if (Http && PropertyName == GET_MEMBER_NAME_CHECKED(UNeocortexSettings, ApiKey))
+			Http->SetApiKey(GetDefault<UNeocortexSettings>()->ApiKey);
+	});
+#endif
 }
 
 void UNeocortexSubsystem::Deinitialize()
 {
+#if WITH_EDITOR
+	GetMutableDefault<UNeocortexSettings>()->SettingsChanged.Unbind();
+#endif
 	RegisteredInteractables.Empty();
+	EventLog.Empty();
 	Super::Deinitialize();
 }
 
@@ -98,63 +115,86 @@ TArray<UNeocortexInteractableComponent*> UNeocortexSubsystem::GetInteractablesIn
 	return NearbyInteractables;
 }
 
-FString UNeocortexSubsystem::CreateInteractablesMetadata() const
+FString UNeocortexSubsystem::SerializeInteractables(const TArray<UNeocortexInteractableComponent*>& Components)
 {
-	TArray<UNeocortexInteractableComponent*> ValidInteractables = GetAllInteractables();
-	
-	if (ValidInteractables.Num() == 0)
-	{
-		return TEXT("");  // Return empty string, not "[]", matching Unity SDK
-	}
+	if (Components.IsEmpty()) return TEXT("");
 
 	TArray<TSharedPtr<FJsonValue>> JsonArray;
-	JsonArray.Reserve(ValidInteractables.Num());
-
-	for (UNeocortexInteractableComponent* Component : ValidInteractables)
+	JsonArray.Reserve(Components.Num());
+	for (UNeocortexInteractableComponent* Component : Components)
 	{
-		FNeocortexInteractable InteractableData = Component->ToNeocortexInteractable();
-		TSharedPtr<FJsonObject> JsonObject = FJsonObjectConverter::UStructToJsonObject(InteractableData);
-		if (JsonObject.IsValid())
-		{
-			JsonArray.Add(MakeShared<FJsonValueObject>(JsonObject));
-		}
+		TSharedPtr<FJsonObject> Obj = FJsonObjectConverter::UStructToJsonObject(Component->ToNeocortexInteractable());
+		if (Obj.IsValid()) JsonArray.Add(MakeShared<FJsonValueObject>(Obj));
 	}
 
-	// Serialize to compact JSON string (no pretty-printing)
 	FString Json;
-	TSharedRef<TJsonWriter<TCHAR, TCondensedJsonPrintPolicy<TCHAR>>> Writer = TJsonWriterFactory<TCHAR, TCondensedJsonPrintPolicy<TCHAR>>::Create(&Json);
+	TSharedRef<TJsonWriter<TCHAR, TCondensedJsonPrintPolicy<TCHAR>>> Writer =
+		TJsonWriterFactory<TCHAR, TCondensedJsonPrintPolicy<TCHAR>>::Create(&Json);
 	FJsonSerializer::Serialize(JsonArray, Writer);
-	
 	return Json;
+}
+
+FString UNeocortexSubsystem::CreateInteractablesMetadata() const
+{
+	return SerializeInteractables(GetAllInteractables());
 }
 
 FString UNeocortexSubsystem::CreateInteractablesMetadataInRadius(const FVector& Location, float Radius) const
 {
-	TArray<UNeocortexInteractableComponent*> NearbyInteractables = GetInteractablesInRadius(Location, Radius);
-	
-	if (NearbyInteractables.Num() == 0)
+	return SerializeInteractables(GetInteractablesInRadius(Location, Radius));
+}
+
+void UNeocortexSubsystem::PushEvent(ENeocortexEventPriority Priority, const FString& Content)
+{
+	FScopeLock Lock(&EventMutex);
+	if (EventLog.Num() >= MaxEvents)
 	{
-		return TEXT("");  // Return empty string, not "[]", matching Unity SDK
+		UE_LOG(LogNeocortex, Warning, TEXT("NeocortexEventLogger: max %d events reached, call ClearEvents() to reset"), MaxEvents);
+		return;
 	}
+	EventLog.Add({Priority, FDateTime::UtcNow().ToIso8601(), Content.Left(MaxContentLen)});
+}
+
+void UNeocortexSubsystem::ClearEvents()
+{
+	FScopeLock Lock(&EventMutex);
+	EventLog.Empty();
+}
+
+FString UNeocortexSubsystem::ConsumeLogsJson()
+{
+	FScopeLock Lock(&EventMutex);
+	if (EventLog.IsEmpty()) return TEXT("");
+
+	// High priority first; newest (highest index) first within same priority.
+	TArray<int32> Indices;
+	Indices.Reserve(EventLog.Num());
+	for (int32 i = 0; i < EventLog.Num(); ++i) Indices.Add(i);
+	Indices.StableSort([this](int32 A, int32 B)
+	{
+		if (EventLog[A].Priority != EventLog[B].Priority)
+			return static_cast<uint8>(EventLog[A].Priority) > static_cast<uint8>(EventLog[B].Priority);
+		return A > B;
+	});
 
 	TArray<TSharedPtr<FJsonValue>> JsonArray;
-	JsonArray.Reserve(NearbyInteractables.Num());
-
-	for (UNeocortexInteractableComponent* Component : NearbyInteractables)
+	JsonArray.Reserve(Indices.Num());
+	for (int32 Idx : Indices)
 	{
-		FNeocortexInteractable InteractableData = Component->ToNeocortexInteractable();
-		TSharedPtr<FJsonObject> JsonObject = FJsonObjectConverter::UStructToJsonObject(InteractableData);
-		if (JsonObject.IsValid())
-		{
-			JsonArray.Add(MakeShared<FJsonValueObject>(JsonObject));
-		}
+		const FEventEntry& E = EventLog[Idx];
+		TSharedRef<FJsonObject> Obj = MakeShared<FJsonObject>();
+		Obj->SetNumberField(TEXT("priority"), static_cast<int32>(E.Priority));
+		Obj->SetStringField(TEXT("date"),     E.Date);
+		Obj->SetStringField(TEXT("content"),  E.Content);
+		JsonArray.Add(MakeShared<FJsonValueObject>(Obj));
 	}
 
-	// Serialize to compact JSON string (no pretty-printing)
 	FString Json;
-	TSharedRef<TJsonWriter<TCHAR, TCondensedJsonPrintPolicy<TCHAR>>> Writer = TJsonWriterFactory<TCHAR, TCondensedJsonPrintPolicy<TCHAR>>::Create(&Json);
+	TSharedRef<TJsonWriter<TCHAR, TCondensedJsonPrintPolicy<TCHAR>>> Writer =
+		TJsonWriterFactory<TCHAR, TCondensedJsonPrintPolicy<TCHAR>>::Create(&Json);
 	FJsonSerializer::Serialize(JsonArray, Writer);
 
+	EventLog.Empty(); // consume
 	return Json;
 }
 

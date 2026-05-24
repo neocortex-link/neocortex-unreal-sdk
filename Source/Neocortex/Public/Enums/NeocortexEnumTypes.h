@@ -36,6 +36,15 @@ enum class EMicrophoneState : uint8
 	Recording,
    };
 
+/** Priority level for event log entries sent with API requests. */
+UENUM(BlueprintType)
+enum class ENeocortexEventPriority : uint8
+{
+    Low    = 0,
+    Medium = 1,
+    High   = 2,
+};
+
 /**
  * Emotional states for character expression and dialogue systems.
  * Organized by intensity quadrants: calm/energetic and positive/negative.

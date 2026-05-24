@@ -83,10 +83,18 @@ public:
     
     /**
      * Transcribes audio data to text.
-     * @param AudioData Audio data in WAV format
+     * @param Data Audio data in WAV format
      */
     UFUNCTION(BlueprintCallable, Category = "Neocortex")
     void TranscribeBytes(const TArray<uint8>& Data);
+
+    /**
+     * Transcribes audio then sends the result as a message, receiving both text and audio responses.
+     * Equivalent to Unity's AudioToAudio — the full voice-in / voice-out flow.
+     * @param WavData Audio data in WAV format
+     */
+    UFUNCTION(BlueprintCallable, Category = "Neocortex")
+    void SendAudioForAudio(const TArray<uint8>& WavData);
 
     /**
      * Retrieves the chat history for this agent's character.
@@ -98,6 +106,10 @@ public:
     /** Clears the session ID to start a new conversation. */
     UFUNCTION(BlueprintCallable, Category = "Neocortex")
     void ClearSessionId();
+
+    /** Returns true while a request is in flight. Use in Blueprint to disable input or show a spinner. */
+    UFUNCTION(BlueprintCallable, BlueprintPure, Category = "Neocortex")
+    bool IsRequestPending() const { return bRequestPending; }
 
 protected:
     virtual void BeginPlay() override;
@@ -119,22 +131,19 @@ private:
     FString GetMetadata() const;
 
     /** Handler for text chat responses. */
-    void OnChatResponse(const FNeocortexChatResponseData& ChatResponse) const;
-
-    /** Handler for chat request failures. */
-    void OnChatFail(const FNeocortexRequestError& RequestError) const;
+    void OnChatResponse(const FNeocortexChatResponseData& ChatResponse);
 
     /** Handler for audio responses. */
     void OnAudioResponse(const TArray<uint8>& Bytes);
 
     /** Handler for transcription responses. */
-    void OnTranscribeResponse(const FNeocortexAudioTranscribeResponseData& TranscribeResponse) const;
+    void OnTranscribeResponse(const FNeocortexAudioTranscribeResponseData& TranscribeResponse);
 
     /** Handler for chat history responses. */
     void OnChatHistoryResponse(const TArray<FNeocortexChatMessage>& ChatMessages) const;
 
     /** Handler for service-level failures. */
-    void OnServiceFail(const FNeocortexRequestError& RequestError) const;
+    void OnServiceFail(const FNeocortexRequestError& RequestError);
 
     /** Buffer for decoded audio samples. */
     TArray<int16> AudioDataCache;
@@ -142,4 +151,10 @@ private:
     /** Cached procedural sound wave for audio playback. */
     UPROPERTY()
     USoundWaveProcedural* LastSoundWave = nullptr;
+
+    /** True while a conversational request is in flight. Prevents concurrent sends. */
+    bool bRequestPending = false;
+
+    /** True when the active flow ends with an audio response (TextToAudio, AudioToAudio). */
+    bool bExpectingAudio = false;
 };

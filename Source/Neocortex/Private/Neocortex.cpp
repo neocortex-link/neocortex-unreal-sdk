@@ -19,4 +19,4 @@ void FNeocortexModule::ShutdownModule()
 
 #undef LOCTEXT_NAMESPACE
 	
-IMPLEMENT_MODULE(FNeocortexModule, NeoCortex)
+IMPLEMENT_MODULE(FNeocortexModule, Neocortex)

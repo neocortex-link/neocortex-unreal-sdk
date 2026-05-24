@@ -1,7 +1,8 @@
 #pragma once
 #include "CoreMinimal.h"
 #include "NeocortexTypes.h"
-#include "WebImage.h"
+#include "Interfaces/IHttpRequest.h"
+#include "Interfaces/IHttpResponse.h"
 #include "NeocortexService.generated.h"
 
 /** Delegate fired when a chat response is received. */
@@ -48,7 +49,8 @@ public:
                     const FString& Message,
                     FNeocortexChatDelegate OnChatResponse,
                     FNeocortexErrorDelegate OnFail,
-                    const FString& Metadata = TEXT(""));
+                    const FString& Metadata = TEXT(""),
+                    const FString& Events = TEXT(""));
 
     /**
      * Sends a text message and receives both text and audio responses from a character.
@@ -64,7 +66,8 @@ public:
                      FNeocortexChatDelegate OnChatResponse,
                      FNeocortexAudioDelegate OnAudioResponse,
                      FNeocortexErrorDelegate OnFail,
-                     const FString& Metadata = TEXT(""));
+                     const FString& Metadata = TEXT(""),
+                     const FString& Events = TEXT(""));
 
     /**
      * Transcribes audio input to text for a character conversation.
@@ -77,6 +80,15 @@ public:
                      const TArray<uint8>& WavBytes,
                      FNeocortexTranscribeDelegate OnTranscribeResponse,
                      FNeocortexErrorDelegate OnFail);
+
+    /** Transcribes audio then sends the result as a chat message, returning both text and audio responses. */
+    void AudioToAudio(const FString& CharacterId,
+                      const TArray<uint8>& WavBytes,
+                      FNeocortexChatDelegate OnChatResponse,
+                      FNeocortexAudioDelegate OnAudioResponse,
+                      FNeocortexErrorDelegate OnFail,
+                      const FString& Metadata = TEXT(""),
+                      const FString& Events = TEXT(""));
 
     /**
      * Retrieves chat history for a character.

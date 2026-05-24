@@ -13,12 +13,6 @@ void UNeocortexMicrophoneRecorderComponent::BeginPlay()
 	Super::BeginPlay();
 	Recorder = MakeUnique<FNeocortexMicrophoneRecorder>(SampleRate, NumChannels);
 
-	if (Recorder.IsValid())
-	{
-		Recorder->ListInputDevices();
-	}
-
-    
 	if (SmartAgent)
 	{
 		return;
@@ -45,18 +39,20 @@ void UNeocortexMicrophoneRecorderComponent::EndPlay(const EEndPlayReason::Type E
 
 bool UNeocortexMicrophoneRecorderComponent::HasMicrophonePermission() const
 {
-#if PLATFORM_ANDROID || PLATFORM_IOS
-	return UAndroidPermissionFunctionLibrary::CheckPermission("android.permission.RECORD_AUDIO");
+#if PLATFORM_ANDROID
+	return UAndroidPermissionFunctionLibrary::CheckPermission(TEXT("android.permission.RECORD_AUDIO"));
 #else
+	// iOS: permission is controlled by NSMicrophoneUsageDescription in plist; OS prompts automatically.
+	// Desktop: always available.
 	return true;
 #endif
 }
 
 void UNeocortexMicrophoneRecorderComponent::RequestMicrophonePermission()
 {
-#if PLATFORM_ANDROID || PLATFORM_IOS
+#if PLATFORM_ANDROID
 	TArray<FString> Permissions;
-	Permissions.Add("android.permission.RECORD_AUDIO");
+	Permissions.Add(TEXT("android.permission.RECORD_AUDIO"));
 	UAndroidPermissionFunctionLibrary::AcquirePermissions(Permissions);
 #endif
 }
@@ -75,10 +71,6 @@ bool UNeocortexMicrophoneRecorderComponent::StartRecording()
 	if (!Recorder.IsValid())
 	{
 		Recorder = MakeUnique<FNeocortexMicrophoneRecorder>(SampleRate, NumChannels);
-		if (Recorder.IsValid())
-		{
-			Recorder->ListInputDevices();
-		}
 	}
 
 	LastConsumedBytes = 0;

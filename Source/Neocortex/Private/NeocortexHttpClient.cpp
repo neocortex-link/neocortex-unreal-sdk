@@ -10,55 +10,63 @@ void UNeocortexHttpClient::Init(const FString& InBaseUrl, const FNeocortexHttpOp
     BaseUrl = InBaseUrl;
     Opts = HttpOptions;
     Opts.ApiKey = GetDefault<UNeocortexSettings>()->ApiKey;
-    UE_LOG (LogNeocortex, Log, TEXT("Initialized UNeoHttpClient with API Key: %s"), *Opts.ApiKey);
+    UE_LOG(LogNeocortex, Log, TEXT("UNeocortexHttpClient initialized (base: %s)"), *BaseUrl);
 }
 
 FNeocortexRequestHandle UNeocortexHttpClient::PostJson(const FString& Path,
-                                           const FString& JsonBody,
-                                           const TCHAR* Accept,
-                                           FNeocortexHttpRawDelegate Callback)
+                                                       const FString& JsonBody,
+                                                       const TCHAR* Accept,
+                                                       FNeocortexHttpRawDelegate Callback)
 {
-    auto& Http = FHttpModule::Get();
     FNeocortexRequestHandle Handle;
-    TSharedRef<IHttpRequest, ESPMode::ThreadSafe> Req = Http.CreateRequest();
-    Req->SetURL(BaseUrl / Path);
-    UE_LOG(LogNeocortex, Log, TEXT("POST %s"), *(BaseUrl / Path));
-    Req->SetVerb(TEXT("POST"));
-    Req->SetHeader(TEXT("Content-Type"), TEXT("application/json"));
-    if (Accept && *Accept) Req->SetHeader(TEXT("Accept"), Accept);
-    if (!Opts.ApiKey.IsEmpty()) Req->SetHeader(TEXT("x-api-key"), Opts.ApiKey);
-    Req->SetTimeout(Opts.TimeoutSeconds);
-    Req->SetContentAsString(JsonBody);
-    UE_LOG(LogNeocortex, Log, TEXT("POST BODY = %s"), *(JsonBody));
 
-    InFlight.Add(Handle.Id, Req);
-    AttachCompletion(Handle, Req, Callback, 0);
-    Req->ProcessRequest();
+    const FString Url = BaseUrl / Path;
+    const FString ApiKey = Opts.ApiKey;
+    const FString AcceptStr = Accept ? FString(Accept) : FString();
+    const float Timeout = Opts.TimeoutSeconds;
+
+    UE_LOG(LogNeocortex, Log, TEXT("POST %s body=%s"), *Url, *JsonBody);
+
+    FRequestFactory Factory = [Url, JsonBody, ApiKey, AcceptStr, Timeout]()
+    {
+        TSharedRef<IHttpRequest, ESPMode::ThreadSafe> Req = FHttpModule::Get().CreateRequest();
+        Req->SetURL(Url);
+        Req->SetVerb(TEXT("POST"));
+        Req->SetHeader(TEXT("Content-Type"), TEXT("application/json"));
+        if (!AcceptStr.IsEmpty()) Req->SetHeader(TEXT("Accept"), *AcceptStr);
+        if (!ApiKey.IsEmpty()) Req->SetHeader(TEXT("x-api-key"), ApiKey);
+        Req->SetTimeout(Timeout);
+        Req->SetContentAsString(JsonBody);
+        return Req;
+    };
+
+    SendWithRetry(Handle, MoveTemp(Factory), MoveTemp(Callback), 0);
     return Handle;
 }
 
 FNeocortexRequestHandle UNeocortexHttpClient::PostMultipart(const FString& Path,
-                                                const TMap<FString,FString>& Fields,
-                                                const FString& FileField,
-                                                const FString& FileName,
-                                                const FString& MimeType,
-                                                const TArray<uint8>& Bytes,
-                                                const TCHAR* Accept,
-                                                FNeocortexHttpRawDelegate Callback)
+                                                            const TMap<FString, FString>& Fields,
+                                                            const FString& FileField,
+                                                            const FString& FileName,
+                                                            const FString& MimeType,
+                                                            const TArray<uint8>& Bytes,
+                                                            const TCHAR* Accept,
+                                                            FNeocortexHttpRawDelegate Callback)
 {
-    auto& Http = FHttpModule::Get();
     FNeocortexRequestHandle Handle;
-    TSharedRef<IHttpRequest, ESPMode::ThreadSafe> Req = Http.CreateRequest();
 
     const FString Boundary = TEXT("----NeoBoundary") + FGuid::NewGuid().ToString(EGuidFormats::Digits);
+    const FString ContentType = FString::Printf(TEXT("multipart/form-data; boundary=%s"), *Boundary);
+
+    // Build the body once; retries reuse the same bytes.
     TArray<uint8> Body;
     auto AddLine = [&Body](const FString& S)
     {
         FTCHARToUTF8 Conv(*S);
         Body.Append(reinterpret_cast<const uint8*>(Conv.Get()), Conv.Length());
-        Body.Append({'\r','\n'});
+        Body.Append({'\r', '\n'});
     };
-    for (auto& KV : Fields)
+    for (const auto& KV : Fields)
     {
         AddLine(TEXT("--") + Boundary);
         AddLine(FString::Printf(TEXT("Content-Disposition: form-data; name=\"%s\""), *KV.Key));
@@ -73,55 +81,79 @@ FNeocortexRequestHandle UNeocortexHttpClient::PostMultipart(const FString& Path,
     AddLine(TEXT(""));
     AddLine(TEXT("--") + Boundary + TEXT("--"));
 
-    Req->SetURL(BaseUrl / Path);
-    Req->SetVerb(TEXT("POST"));
-    Req->SetHeader(TEXT("Content-Type"), FString::Printf(TEXT("multipart/form-data; boundary=%s"), *Boundary));
-    if (Accept && *Accept) Req->SetHeader(TEXT("Accept"), Accept);
-    if (!Opts.ApiKey.IsEmpty()) Req->SetHeader(TEXT("x-api-key"), Opts.ApiKey);
-    Req->SetTimeout(Opts.TimeoutSeconds);
-    Req->SetContent(Body);
-    InFlight.Add(Handle.Id, Req);
-    AttachCompletion(Handle, Req, Callback, 0);
-    Req->ProcessRequest();
+    const FString Url = BaseUrl / Path;
+    const FString ApiKey = Opts.ApiKey;
+    const FString AcceptStr = Accept ? FString(Accept) : FString();
+    const float Timeout = Opts.TimeoutSeconds;
+
+    FRequestFactory Factory = [Url, Body, ContentType, ApiKey, AcceptStr, Timeout]()
+    {
+        TSharedRef<IHttpRequest, ESPMode::ThreadSafe> Req = FHttpModule::Get().CreateRequest();
+        Req->SetURL(Url);
+        Req->SetVerb(TEXT("POST"));
+        Req->SetHeader(TEXT("Content-Type"), ContentType);
+        if (!AcceptStr.IsEmpty()) Req->SetHeader(TEXT("Accept"), *AcceptStr);
+        if (!ApiKey.IsEmpty()) Req->SetHeader(TEXT("x-api-key"), ApiKey);
+        Req->SetTimeout(Timeout);
+        Req->SetContent(Body);
+        return Req;
+    };
+
+    SendWithRetry(Handle, MoveTemp(Factory), MoveTemp(Callback), 0);
     return Handle;
 }
 
-void UNeocortexHttpClient::AttachCompletion(const FNeocortexRequestHandle& H,
-                                      TSharedRef<IHttpRequest, ESPMode::ThreadSafe> Req,
-                                      FNeocortexHttpRawDelegate Cb,
-                                      int32 Attempt)
+void UNeocortexHttpClient::SendWithRetry(const FNeocortexRequestHandle& Handle,
+                                          FRequestFactory Factory,
+                                          FNeocortexHttpRawDelegate Callback,
+                                          int32 Attempt)
 {
+    TSharedRef<IHttpRequest, ESPMode::ThreadSafe> Req = Factory();
+    InFlight.Add(Handle.Id, Req);
+
     TWeakObjectPtr<UNeocortexHttpClient> WeakThis(this);
     Req->OnProcessRequestComplete().BindLambda(
-        [WeakThis, H, Cb, Attempt](TSharedPtr<IHttpRequest, ESPMode::ThreadSafe> Request,
-                                   FHttpResponsePtr Resp, bool bOK)
+        [WeakThis, Handle, Callback, Factory, Attempt](
+            TSharedPtr<IHttpRequest, ESPMode::ThreadSafe>,
+            FHttpResponsePtr Resp, bool bOK)
         {
             if (!WeakThis.IsValid()) return;
-            WeakThis->InFlight.Remove(H.Id);
-            const bool Retryable = !bOK || !Resp.IsValid() || !EHttpResponseCodes::IsOk(Resp->GetResponseCode());
-            if (Retryable && Attempt < WeakThis->Opts.MaxRetries)
+            WeakThis->InFlight.Remove(Handle.Id);
+
+            const int32 Code = Resp.IsValid() ? Resp->GetResponseCode() : 0;
+            const bool bRetryable = !bOK || !Resp.IsValid() || Code >= 500;
+            if (bRetryable && Attempt < WeakThis->Opts.MaxRetries)
             {
-                // simple linear backoff
                 const float Delay = WeakThis->Opts.RetryBackoffSeconds * (Attempt + 1);
-                AsyncTask(ENamedThreads::GameThread, [WeakThis, H, Cb, Request, Attempt, Delay]()
+                AsyncTask(ENamedThreads::GameThread, [WeakThis, Handle, Callback, Factory, Attempt, Delay]()
                 {
                     if (!WeakThis.IsValid()) return;
-                    FTimerHandle Timer;
-                    if (UWorld* W = GEngine->GetCurrentPlayWorld())
+                    UWorld* W = GEngine->GetCurrentPlayWorld();
+                    if (!W)
                     {
-                        W->GetTimerManager().SetTimer(Timer, [WeakThis, H, Cb, Attempt, Request]()
-                        {
-                            if (!WeakThis.IsValid()) return;
-                            WeakThis->AttachCompletion(H, Request.ToSharedRef(), Cb, Attempt + 1);
-                            Request->ProcessRequest();
-                        }, Delay, false);
+                        // No world during level transition — fail rather than silently drop the retry
+                        Callback.ExecuteIfBound(FString(), nullptr);
+                        return;
                     }
+                    FTimerHandle Timer;
+                    W->GetTimerManager().SetTimer(Timer, [WeakThis, Handle, Callback, Factory, Attempt]()
+                    {
+                        if (!WeakThis.IsValid()) return;
+                        WeakThis->SendWithRetry(Handle, Factory, Callback, Attempt + 1);
+                    }, Delay, false);
                 });
                 return;
             }
+
             const FString Raw = Resp.IsValid() ? Resp->GetContentAsString() : FString();
-            AsyncTask(ENamedThreads::GameThread, [Cb, Raw, Resp]() { Cb.ExecuteIfBound(Raw, Resp); });
+            // Dispatch on game thread: HTTP callbacks are normally game-thread, but not guaranteed on all platforms.
+            AsyncTask(ENamedThreads::GameThread, [Callback, Raw, Resp]()
+            {
+                Callback.ExecuteIfBound(Raw, Resp);
+            });
         });
+
+    Req->ProcessRequest();
 }
 
 void UNeocortexHttpClient::Cancel(const FNeocortexRequestHandle& Handle)

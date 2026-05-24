@@ -25,8 +25,8 @@ public:
 	FString Name;
 	
 	/** Whether this interactable is the subject of agent focus. */
-	UPROPERTY(BlueprintReadOnly, Category = "Neocortex")
-	bool IsSubject;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Neocortex")
+	bool IsSubject = false;
 	
 	/** Custom properties providing additional context about this interactable. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Neocortex")

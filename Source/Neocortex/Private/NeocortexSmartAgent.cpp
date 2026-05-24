@@ -3,6 +3,7 @@
 #include "NeocortexService.h"
 #include "NeocortexSubsystem.h"
 #include "NeocortexSessionManager.h"
+#include "NeocortexEventLogger.h"
 #include "Engine/World.h"
 #include "Sound/SoundWaveProcedural.h"
 #include "NeocortexDrMp3.h"
@@ -53,14 +54,23 @@ void UNeocortexSmartAgent::SendMessage(const FString& Message)
         UE_LOG(LogNeocortex, Error, TEXT("SendMessage: invalid state (ProjectId='%s', Service valid=%s)"), *ProjectId, Service.IsValid() ? TEXT("true") : TEXT("false"));
         return;
     }
+    if (bRequestPending)
+    {
+        OnError.Broadcast(TEXT("request already in flight"));
+        return;
+    }
 
+    bRequestPending = true;
+    bExpectingAudio = false;
     const FString Metadata = GetMetadata();
+    const FString Events = UNeocortexEventLogger::ConsumeLogsJson(this);
     Service->TextToText(
         ProjectId,
         Message,
         FNeocortexChatDelegate::CreateUObject(this, &UNeocortexSmartAgent::OnChatResponse),
-        FNeocortexErrorDelegate::CreateUObject(this, &UNeocortexSmartAgent::OnChatFail),
-        Metadata);
+        FNeocortexErrorDelegate::CreateUObject(this, &UNeocortexSmartAgent::OnServiceFail),
+        Metadata,
+        Events);
 }
 
 void UNeocortexSmartAgent::SendMessageForAudio(const FString& Message)
@@ -70,26 +80,43 @@ void UNeocortexSmartAgent::SendMessageForAudio(const FString& Message)
         OnError.Broadcast(TEXT("invalid state"));
         UE_LOG(LogNeocortex, Error, TEXT("SendMessageForAudio: invalid state (ProjectId='%s', Service valid=%s)"), *ProjectId, Service.IsValid() ? TEXT("true") : TEXT("false"));
         return;
-    } 
+    }
+    if (bRequestPending)
+    {
+        OnError.Broadcast(TEXT("request already in flight"));
+        return;
+    }
 
+    bRequestPending = true;
+    bExpectingAudio = true;
     const FString Metadata = GetMetadata();
+    const FString Events = UNeocortexEventLogger::ConsumeLogsJson(this);
     Service->TextToAudio(
         ProjectId,
         Message,
         FNeocortexChatDelegate::CreateUObject(this, &UNeocortexSmartAgent::OnChatResponse),
-        FNeocortexAudioDelegate::CreateUObject(this, &UNeocortexSmartAgent::OnAudioResponse),        
+        FNeocortexAudioDelegate::CreateUObject(this, &UNeocortexSmartAgent::OnAudioResponse),
         FNeocortexErrorDelegate::CreateUObject(this, &UNeocortexSmartAgent::OnServiceFail),
-        Metadata);
+        Metadata,
+        Events);
 }
 
 void UNeocortexSmartAgent::TranscribeBytes(const TArray<uint8>& Data)
-{    
+{
     if (!Service.IsValid() || ProjectId.IsEmpty())
     {
-        OnError.Broadcast(TEXT("Invalid state"));
-        UE_LOG (LogNeocortex, Error, TEXT("TranscribeBytes: invalid state (ProjectId='%s', Service valid=%s)"), *ProjectId, Service.IsValid() ? TEXT("true") : TEXT("false"));
+        OnError.Broadcast(TEXT("invalid state"));
+        UE_LOG(LogNeocortex, Error, TEXT("TranscribeBytes: invalid state (ProjectId='%s', Service valid=%s)"), *ProjectId, Service.IsValid() ? TEXT("true") : TEXT("false"));
         return;
     }
+    if (bRequestPending)
+    {
+        OnError.Broadcast(TEXT("request already in flight"));
+        return;
+    }
+
+    bRequestPending = true;
+    bExpectingAudio = false;
     Service->AudioToText(
         ProjectId,
         Data,
@@ -97,12 +124,39 @@ void UNeocortexSmartAgent::TranscribeBytes(const TArray<uint8>& Data)
         FNeocortexErrorDelegate::CreateUObject(this, &UNeocortexSmartAgent::OnServiceFail));
 }
 
+void UNeocortexSmartAgent::SendAudioForAudio(const TArray<uint8>& WavData)
+{
+    if (!Service.IsValid() || ProjectId.IsEmpty())
+    {
+        OnError.Broadcast(TEXT("invalid state"));
+        return;
+    }
+    if (bRequestPending)
+    {
+        OnError.Broadcast(TEXT("request already in flight"));
+        return;
+    }
+
+    bRequestPending = true;
+    bExpectingAudio = true;
+    const FString Metadata = GetMetadata();
+    const FString Events = UNeocortexEventLogger::ConsumeLogsJson(this);
+    Service->AudioToAudio(
+        ProjectId,
+        WavData,
+        FNeocortexChatDelegate::CreateUObject(this, &UNeocortexSmartAgent::OnChatResponse),
+        FNeocortexAudioDelegate::CreateUObject(this, &UNeocortexSmartAgent::OnAudioResponse),
+        FNeocortexErrorDelegate::CreateUObject(this, &UNeocortexSmartAgent::OnServiceFail),
+        Metadata,
+        Events);
+}
+
 void UNeocortexSmartAgent::GetChatHistory(int32 Limit)
 {
     if (!Service.IsValid() || ProjectId.IsEmpty())
     {
-        OnError.Broadcast(TEXT("Invalid state"));
-        UE_LOG (LogNeocortex, Error, TEXT("GetChatHistory: invalid state (ProjectId='%s', Service valid=%s)"), *ProjectId, Service.IsValid() ? TEXT("true") : TEXT("false"));
+        OnError.Broadcast(TEXT("invalid state"));
+        UE_LOG(LogNeocortex, Error, TEXT("GetChatHistory: invalid state (ProjectId='%s', Service valid=%s)"), *ProjectId, Service.IsValid() ? TEXT("true") : TEXT("false"));
         return;
     }
 
@@ -115,62 +169,30 @@ void UNeocortexSmartAgent::GetChatHistory(int32 Limit)
 
 void UNeocortexSmartAgent::ClearSessionId()
 {
-    UObject* Outer = GetOuter();
-    UE_LOG(LogNeocortex, Log, TEXT("ClearSessionId called, Outer=%s"), Outer ? *Outer->GetName() : TEXT("nullptr"));
-
-    UNeocortexSubsystem* Sub = Cast<UNeocortexSubsystem>(Outer);
-    if (!Sub)
+    if (Subsystem.IsValid())
     {
-        UE_LOG(LogNeocortex, Warning, TEXT("Outer is not a UNeocortexSubsystem, trying alternative method"));
-        
-        // Alternative: Get subsystem through world
-        if (GetWorld())
-        {
-            if (UGameInstance* GI = GetWorld()->GetGameInstance())
-            {
-                Sub = GI->GetSubsystem<UNeocortexSubsystem>();
-            }
-        }
+        Subsystem->GetSessionManager()->Clear(ProjectId);
     }
-
-    if (!Sub)
-    {
-        UE_LOG(LogNeocortex, Error, TEXT("Failed to get UNeocortexSubsystem"));
-        return;
-    }
-
-    UNeocortexSessionManager* SessionMgr = Sub->GetSessionManager();
-    if (!SessionMgr)
-    {
-        UE_LOG(LogNeocortex, Error, TEXT("SessionManager is null"));
-        return;
-    }
-
-    SessionMgr->Clear(ProjectId);
-    UE_LOG(LogNeocortex, Log, TEXT("Cleared session ID for ProjectId='%s'"), *ProjectId);
 }
 
 
-void UNeocortexSmartAgent::OnChatResponse(const FNeocortexChatResponseData& ChatResponse) const
+void UNeocortexSmartAgent::OnChatResponse(const FNeocortexChatResponseData& ChatResponse)
 {
-    //TODO: handle empty response
+    // Only terminal for TextToText; TextToAudio and AudioToAudio still expect an audio response.
+    if (!bExpectingAudio) bRequestPending = false;
     OnChat.Broadcast(ChatResponse);
-}
-
-void UNeocortexSmartAgent::OnChatFail(const FNeocortexRequestError& RequestError) const
-{
-    //TODO: handle empty response
-    OnError.Broadcast(RequestError.Message);
 }
 
 void UNeocortexSmartAgent::OnAudioResponse(const TArray<uint8>& Bytes)
 {
+    bRequestPending = false;
+    bExpectingAudio = false;
+
     if (Bytes.Num() == 0)
     {
-        OnError.Broadcast(TEXT("Received empty audio data")); 
+        OnError.Broadcast(TEXT("Received empty audio data"));
         UE_LOG(LogNeocortex, Error, TEXT("OnAudioResponse: Received empty audio data"));
         return;
-
     }
 
     USoundWaveProcedural* SW = NewObject<USoundWaveProcedural>(this);
@@ -190,12 +212,14 @@ void UNeocortexSmartAgent::OnAudioResponse(const TArray<uint8>& Bytes)
     SW->SetSampleRate(SampleRate);
     SW->NumChannels = Channels;
     SW->QueueAudio(reinterpret_cast<const uint8*>(AudioDataCache.GetData()), AudioDataCache.Num() * sizeof(int16));
+    AudioDataCache.Reset(); // QueueAudio copies internally; no need to keep this around
 
     OnAudio.Broadcast(LastSoundWave);
 }
 
-void UNeocortexSmartAgent::OnTranscribeResponse(const FNeocortexAudioTranscribeResponseData& TranscribeResponse) const
-{    
+void UNeocortexSmartAgent::OnTranscribeResponse(const FNeocortexAudioTranscribeResponseData& TranscribeResponse)
+{
+    bRequestPending = false;
     OnTranscribed.Broadcast(TranscribeResponse.Response);
 }
 
@@ -204,7 +228,9 @@ void UNeocortexSmartAgent::OnChatHistoryResponse(const TArray<FNeocortexChatMess
     OnChatHistory.Broadcast(ChatMessages);
 }
 
-void UNeocortexSmartAgent::OnServiceFail(const FNeocortexRequestError& RequestError) const
+void UNeocortexSmartAgent::OnServiceFail(const FNeocortexRequestError& RequestError)
 {
+    bRequestPending = false;
+    bExpectingAudio = false;
     OnError.Broadcast(RequestError.Message);
 }

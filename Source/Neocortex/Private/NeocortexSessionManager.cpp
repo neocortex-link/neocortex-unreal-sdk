@@ -43,5 +43,4 @@ void UNeocortexSessionManager::Clear(const FString& ProjectId)
 void UNeocortexSessionManager::FlushSingle(const FString& Key, const FString& Value) const
 {
 	GConfig->SetString(*Section, *Key, *Value, GGameIni);
-	GConfig->Flush(false, GGameIni);
 }

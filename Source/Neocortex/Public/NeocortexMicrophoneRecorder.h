@@ -3,8 +3,6 @@
 #include "CoreMinimal.h"
 #include "Interfaces/VoiceCapture.h"
 
-class FWavEncoder;
-
 /**
  * Low-level microphone recording class for capturing and processing audio input.
  * Captures raw PCM16 audio data and provides WAV encoding and resampling utilities.
@@ -13,8 +11,17 @@ class FWavEncoder;
 class NEOCORTEX_API FNeocortexMicrophoneRecorder
 {
 public:
+    /** Returns the display names of all available audio input devices. */
+    static TArray<FString> GetAvailableDeviceNames();
+
     /** Logs all available audio input devices to the console. */
     void ListInputDevices() const;
+
+    /**
+     * Sets a preferred device by name. Takes effect on the next StartRecording() call.
+     * Pass an empty string to revert to automatic selection.
+     */
+    void SetPreferredDevice(const FString& DeviceName);
 
     /**
      * Creates a microphone recorder with specified audio format.
@@ -67,6 +74,9 @@ public:
     /** Returns true if currently capturing audio. */
     bool IsRecording() const { return bIsRecording; }
 
+    /** Returns the RMS amplitude of the most recent audio chunk (0–1). Updated each Tick. */
+    float GetAmplitude() const { return Amplitude; }
+
     /** Returns the configured sample rate in Hz. */
     int32 GetSampleRate() const { return SampleRate; }
 
@@ -82,6 +92,12 @@ private:
 
     /** True when actively capturing audio. */
     bool bIsRecording = false;
+
+    /** Device name to try first; empty means auto-select the first working device. */
+    FString PreferredDeviceName;
+
+    /** RMS amplitude of the most recent captured chunk (0–1). */
+    float Amplitude = 0.f;
 
     /** Target sample rate in Hz. */
     int32 SampleRate = 48000;

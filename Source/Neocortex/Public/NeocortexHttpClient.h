@@ -1,6 +1,7 @@
 #pragma once
 #include "CoreMinimal.h"
-#include "WebImage.h"
+#include "Interfaces/IHttpRequest.h"
+#include "Interfaces/IHttpResponse.h"
 #include "NeocortexHttpClient.generated.h"
 
 /** Delegate fired when an HTTP request completes with raw response data. */
@@ -82,9 +83,12 @@ public:
      */
     void Cancel(const FNeocortexRequestHandle& Handle);
 
+    /** Updates the API key used for subsequent requests. Existing in-flight requests are unaffected. */
+    void SetApiKey(const FString& NewKey) { Opts.ApiKey = NewKey; }
+
 private:
     /** Base URL for all API requests. */
-    FString BaseUrl = TEXT("https://neocortex.link/api/v2");
+    FString BaseUrl = TEXT("https://api.neocortex.link/v2");
     
     /** HTTP client configuration options. */
     FNeocortexHttpOptions Opts;
@@ -92,15 +96,12 @@ private:
     /** Map of active requests tracked by GUID. */
     TMap<FGuid, TSharedRef<IHttpRequest, ESPMode::ThreadSafe>> InFlight;
 
-    /**
-     * Attaches completion callback with retry logic to an HTTP request.
-     * @param H Request handle for tracking
-     * @param Req HTTP request object
-     * @param Cb Callback delegate to invoke on completion
-     * @param Attempt Current retry attempt number
-     */
-    void AttachCompletion(const FNeocortexRequestHandle& H,
-                          TSharedRef<IHttpRequest, ESPMode::ThreadSafe> Req,
-                          FNeocortexHttpRawDelegate Cb,
-                          int32 Attempt);
+    using FRequestFactory = TFunction<TSharedRef<IHttpRequest, ESPMode::ThreadSafe>()>;
+
+    // Creates a fresh request via Factory, sends it, and retries on failure.
+    // Each retry calls Factory again so a new request object is used.
+    void SendWithRetry(const FNeocortexRequestHandle& Handle,
+                       FRequestFactory Factory,
+                       FNeocortexHttpRawDelegate Callback,
+                       int32 Attempt);
 };

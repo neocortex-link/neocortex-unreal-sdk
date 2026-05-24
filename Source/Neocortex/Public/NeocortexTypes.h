@@ -1,6 +1,5 @@
 #pragma once
 #include "CoreMinimal.h"
-#include "JsonObjectConverter.h"
 #include "Enums/NeocortexEnumTypes.h"
 #include "NeocortexTypes.generated.h"
 
@@ -16,13 +15,13 @@ USTRUCT(BlueprintType)
 struct NEOCORTEX_API FNeocortexInteractableProperty
 {
     GENERATED_BODY()
-    
+
     /** Property name/key (e.g., "Color", "Health", "State"). */
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, meta=(JsonKey="name")) 
+    UPROPERTY(EditAnywhere, BlueprintReadWrite)
     FString Name;
-    
+
     /** Property value (e.g., "Red", "100", "Open"). */
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, meta=(JsonKey="value"))
+    UPROPERTY(EditAnywhere, BlueprintReadWrite)
     FString Value;
 };
 
@@ -30,84 +29,60 @@ USTRUCT(BlueprintType)
 struct NEOCORTEX_API FNeocortexInteractable
 {
     GENERATED_BODY()
-    
-    UPROPERTY(BlueprintReadOnly, meta=(JsonKey="type"))
+
+    UPROPERTY(BlueprintReadOnly)
     FString Type;
-    UPROPERTY(BlueprintReadOnly, meta=(JsonKey="name"))
+    UPROPERTY(BlueprintReadOnly)
     FString Name;
-    UPROPERTY(BlueprintReadOnly, meta=(JsonKey="isSubject"))
-    bool IsSubject;
-    UPROPERTY(BlueprintReadOnly, meta=(JsonKey="position"))
-    FVector Position;
-    UPROPERTY(BlueprintReadOnly, meta=(JsonKey="properties"))
+    UPROPERTY(BlueprintReadOnly)
+    bool IsSubject = false;
+    UPROPERTY(BlueprintReadOnly)
+    FVector Position = FVector::ZeroVector;
+    UPROPERTY(BlueprintReadOnly)
     TArray<FNeocortexInteractableProperty> Properties;
     
-    FString ToJsonString() const
-    { 
-        FString JsonString;
-        FJsonObjectConverter::UStructToJsonObjectString(*this, JsonString);
-        return JsonString;
-    }
 };
 
 /** Represents an error response from a Neocortex API request. */
 USTRUCT(BlueprintType)
 struct NEOCORTEX_API FNeocortexRequestError {
     GENERATED_BODY()
-    
-    /** HTTP status code or custom error code. */
-    UPROPERTY(BlueprintReadOnly, meta=(JsonKey="code"))
-    int32 Code = 0;
-    
-    /** Human-readable error description. */
-    UPROPERTY(BlueprintReadOnly, meta=(JsonKey="message"))
-    FString Message;
-};
 
-/** Request payload for text-to-text chat interactions. */
-USTRUCT(BlueprintType)
-struct NEOCORTEX_API FNeocortexChatRequest {
-    GENERATED_BODY()
-    
-    /** Optional session ID to continue an existing conversation. */
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, meta=(JsonKey="sessionId"))
-    FString SessionId;
-    
-    /** Required unique identifier for the character. */
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, meta=(JsonKey="characterId"))
-    FString CharacterId;
-    
-    /** Required user message text. */
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, meta=(JsonKey="message"))
+    /** HTTP status code or custom error code. */
+    UPROPERTY(BlueprintReadOnly)
+    int32 Code = 0;
+
+    /** Human-readable error description. */
+    UPROPERTY(BlueprintReadOnly)
     FString Message;
-    
-    /** JSON string containing world context metadata. */
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, meta=(JsonKey="metadata"))
-    FString Metadata;
 };
 
 /** Response data from a chat interaction. */
 USTRUCT(BlueprintType)
 struct NEOCORTEX_API FNeocortexChatResponseData {
     GENERATED_BODY()
-    
+
     /** Session ID for the conversation (new or existing). */
-    UPROPERTY(BlueprintReadOnly, meta=(JsonKey="sessionId"))
+    UPROPERTY(BlueprintReadOnly)
     FString SessionId;
-    
+
     /** Character's text response. */
-    UPROPERTY(BlueprintReadOnly, meta=(JsonKey="response"))
+    UPROPERTY(BlueprintReadOnly)
     FString Response;
-    
+
     /** Optional action identifier associated with the response. */
-    UPROPERTY(BlueprintReadOnly, meta=(JsonKey="action"))
+    UPROPERTY(BlueprintReadOnly)
     FString Action;
-    
+
+    /** Conversation flow state string (opaque to the client). */
+    UPROPERTY(BlueprintReadOnly)
+    FString FlowState;
+
     /** Character's emotional state. */
-    UPROPERTY(BlueprintReadOnly, meta=(JsonKey="emotion"))
-    EEmotions Emotions;
-    
-    UPROPERTY(BlueprintReadOnly, meta=(JsonKey="metadata"))
+    UPROPERTY(BlueprintReadOnly)
+    EEmotions Emotion = EEmotions::Neutral;
+
+    UPROPERTY(BlueprintReadOnly)
     TArray<FNeocortexInteractable> Metadata;
 };
 
@@ -115,13 +90,13 @@ struct NEOCORTEX_API FNeocortexChatResponseData {
 USTRUCT(BlueprintType)
 struct NEOCORTEX_API FNeocortexChatHistoryRequest {
     GENERATED_BODY()
-    
+
     /** Required session ID to retrieve history for. */
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, meta=(JsonKey="sessionId"))
+    UPROPERTY(EditAnywhere, BlueprintReadWrite)
     FString SessionId;
-    
+
     /** Optional maximum number of messages to retrieve (default 10). */
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, meta=(JsonKey="limit"))
+    UPROPERTY(EditAnywhere, BlueprintReadWrite)
     int32 Limit = 10;
 };
 
@@ -129,17 +104,17 @@ struct NEOCORTEX_API FNeocortexChatHistoryRequest {
 USTRUCT(BlueprintType)
 struct NEOCORTEX_API FNeocortexChatMessage {
     GENERATED_BODY()
-    
+
     /** Message content text. */
-    UPROPERTY(BlueprintReadOnly, meta=(JsonKey="content"))
+    UPROPERTY(BlueprintReadOnly)
     FString Content;
-    
+
     /** Sender identifier (user or character). */
-    UPROPERTY(BlueprintReadOnly, meta=(JsonKey="sender"))
+    UPROPERTY(BlueprintReadOnly)
     FString Sender;
-    
+
     /** ISO timestamp of message creation. */
-    UPROPERTY(BlueprintReadOnly, meta=(JsonKey="createdAt"))
+    UPROPERTY(BlueprintReadOnly)
     FString CreatedAt;
 };
 
@@ -147,13 +122,13 @@ struct NEOCORTEX_API FNeocortexChatMessage {
 USTRUCT(BlueprintType)
 struct NEOCORTEX_API FNeocortexChatHistoryResponseData {
     GENERATED_BODY()
-    
+
     /** Session ID the history belongs to. */
-    UPROPERTY(BlueprintReadOnly, meta=(JsonKey="sessionId"))
+    UPROPERTY(BlueprintReadOnly)
     FString SessionId;
-    
+
     /** Array of chat messages in chronological order. */
-    UPROPERTY(BlueprintReadOnly, meta=(JsonKey="messages"))
+    UPROPERTY(BlueprintReadOnly)
     TArray<FNeocortexChatMessage> Messages;
 };
 
@@ -161,8 +136,8 @@ struct NEOCORTEX_API FNeocortexChatHistoryResponseData {
 USTRUCT(BlueprintType)
 struct NEOCORTEX_API FNeocortexAudioTranscribeResponseData {
     GENERATED_BODY()
-    
+
     /** Transcribed text from audio input. */
-    UPROPERTY(BlueprintReadOnly, meta=(JsonKey="response"))
+    UPROPERTY(BlueprintReadOnly)
     FString Response;
 };

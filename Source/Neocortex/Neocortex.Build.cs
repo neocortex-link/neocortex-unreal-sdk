@@ -21,12 +21,12 @@ public class Neocortex : ModuleRules
 		}
 
 		PublicDependencyModuleNames.AddRange(new[] {
-			"Core", "HTTP", "Voice", "ImageDownload"
+			"Core", "Voice"
 		});
 
 		PrivateDependencyModuleNames.AddRange(new[] {
 			"CoreUObject", "Engine", "Slate", "SlateCore", "Json", "JsonUtilities",
-			"HTTP", "UMG", "Projects", "DeveloperSettings", "ImageDownload", "AudioCaptureCore"
+			"HTTP", "UMG", "Projects", "DeveloperSettings", "AudioCaptureCore"
 		});
 		
 		

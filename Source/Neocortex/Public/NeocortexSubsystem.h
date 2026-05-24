@@ -8,6 +8,7 @@
  * Game instance subsystem managing Neocortex service lifecycle and dependencies.
  * Provides centralized access to HTTP client, session manager, and service layer.
  * Manages a registry of interactable components for efficient world state queries.
+ * Manages the event log so it is isolated per GameInstance (safe in PIE).
  * Automatically initializes and cleans up on game instance start/end.
  */
 UCLASS()
@@ -20,7 +21,7 @@ public:
 
 	/** Returns the Neocortex service instance for API interactions. */
 	class UNeocortexService* GetService() const { return Service; }
-    
+
 	/** Returns the session manager for persistent character sessions. */
 	class UNeocortexSessionManager* GetSessionManager() const { return SessionManager; }
 
@@ -67,6 +68,22 @@ public:
 	 */
 	FString CreateInteractablesMetadataInRadius(const FVector& Location, float Radius) const;
 
+	// -------------------------------------------------------------------------
+	// Event log — per-GameInstance storage used by UNeocortexEventLogger.
+	// -------------------------------------------------------------------------
+
+	/** Records a game event. Truncated to 64 chars. Dropped when log is full (20 entries). */
+	void PushEvent(ENeocortexEventPriority Priority, const FString& Content);
+
+	/** Clears all recorded events. */
+	void ClearEvents();
+
+	/**
+	 * Returns current events as a compact JSON string and clears the log (consume semantics).
+	 * Returns empty string when there are no events.
+	 */
+	FString ConsumeLogsJson();
+
 private:
 	/** HTTP client for API communication. */
 	UPROPERTY()
@@ -83,4 +100,12 @@ private:
 	/** Registry of all active interactable components in the world. */
 	UPROPERTY()
 	TArray<class UNeocortexInteractableComponent*> RegisteredInteractables;
+
+	/** Serializes a filtered list of interactables to a compact JSON array string. */
+	static FString SerializeInteractables(const TArray<class UNeocortexInteractableComponent*>& Components);
+
+	// Event log storage — access via PushEvent / ClearEvents / ConsumeLogsJson.
+	struct FEventEntry { ENeocortexEventPriority Priority; FString Date; FString Content; };
+	mutable FCriticalSection EventMutex;
+	TArray<FEventEntry> EventLog;
 };

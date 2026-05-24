@@ -65,6 +65,21 @@ public:
     UFUNCTION(BlueprintPure, Category="Neocortex|Recording")
     bool IsRecording() const { return Recorder.IsValid() && Recorder->IsRecording(); }
 
+    /** Returns the RMS amplitude of the most recent audio chunk (0–1). Useful for driving amplitude UI. */
+    UFUNCTION(BlueprintPure, Category="Neocortex|Recording")
+    float GetAmplitude() const { return Recorder.IsValid() ? Recorder->GetAmplitude() : 0.f; }
+
+    /** Returns display names of all available audio input devices. */
+    UFUNCTION(BlueprintPure, Category="Neocortex|Recording")
+    static TArray<FString> GetAvailableDeviceNames() { return FNeocortexMicrophoneRecorder::GetAvailableDeviceNames(); }
+
+    /**
+     * Sets the preferred input device by name (must match a name from GetAvailableDeviceNames).
+     * Takes effect immediately — stops and restarts the capture device if recording.
+     */
+    UFUNCTION(BlueprintCallable, Category="Neocortex|Recording")
+    void SetPreferredDevice(const FString& DeviceName) { if (Recorder.IsValid()) Recorder->SetPreferredDevice(DeviceName); }
+
 protected:
     virtual void BeginPlay() override;
     virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;

@@ -38,6 +38,14 @@ public:
  UFUNCTION(BlueprintCallable, Category = "Neocortex/Chat")
  void ClearChatMessages();
 
+ /** Shows the writing indicator (call when waiting for AI response). */
+ UFUNCTION(BlueprintCallable, Category = "Neocortex/Chat")
+ void ShowWritingIndicator();
+
+ /** Hides the writing indicator (call when AI response arrives). */
+ UFUNCTION(BlueprintCallable, Category = "Neocortex/Chat")
+ void HideWritingIndicator();
+
  /** Text rendering direction for localization support (LTR/RTL). */
  UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Neocortex/Chat")
  EWritingDirection WritingDirection = EWritingDirection::LeftToRight;
@@ -61,10 +69,13 @@ protected:
 
  /** Creates and configures the writing indicator widget. */
  void CreateWritingIndicatorWidget();
- 
+
  virtual void NativeConstruct() override;
 
 private:
+ /** Appends a message widget without touching the writing indicator — used by AddChatHistory. */
+ void AppendMessage(const FString& Text, bool bIsUser);
+
  /** Scrolls the chat view to show the most recent message. */
  void ScrollToBottom();
 };

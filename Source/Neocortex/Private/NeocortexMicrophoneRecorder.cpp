@@ -17,52 +17,79 @@ static int32 SanitizeSampleRate(int32 Rate)
     return 16000;
 }
 
-static TSharedPtr<IVoiceCapture> CreateWorkingVoiceCapture(int32& SampleRate, int32& NumChannels)
+TArray<FString> FNeocortexMicrophoneRecorder::GetAvailableDeviceNames()
 {
-    // Enforce mono input; most voice capture APIs deliver mono 16-bit PCM
+    TArray<FString> Names;
+    TArray<Audio::FCaptureDeviceInfo> Devices;
+    Audio::FAudioCapture Capture;
+    if (Capture.GetCaptureDevicesAvailable(Devices))
+    {
+        for (const Audio::FCaptureDeviceInfo& Info : Devices)
+        {
+            Names.Add(Info.DeviceName);
+        }
+    }
+    return Names;
+}
+
+static TSharedPtr<IVoiceCapture> TryOpenDevice(const FString& DeviceName, int32& SampleRate)
+{
+    TArray<Audio::FCaptureDeviceInfo> Devices;
+    Audio::FAudioCapture Capture;
+    if (!Capture.GetCaptureDevicesAvailable(Devices)) return nullptr;
+
+    for (const Audio::FCaptureDeviceInfo& Info : Devices)
+    {
+        if (!Info.DeviceName.Equals(DeviceName, ESearchCase::IgnoreCase)) continue;
+        const int32 DeviceRate = SanitizeSampleRate(Info.PreferredSampleRate);
+        TSharedPtr<IVoiceCapture> VC = FVoiceModule::Get().CreateVoiceCapture(Info.DeviceName, DeviceRate, 1);
+        if (!VC.IsValid() || !VC->Start()) return nullptr;
+        VC->Stop();
+        SampleRate = DeviceRate;
+        return VC;
+    }
+    return nullptr;
+}
+
+static TSharedPtr<IVoiceCapture> CreateWorkingVoiceCapture(int32& SampleRate, int32& NumChannels, const FString& PreferredDeviceName)
+{
     NumChannels = 1;
     SampleRate  = SanitizeSampleRate(SampleRate);
 
+    // Try the user's preferred device first.
+    if (!PreferredDeviceName.IsEmpty())
+    {
+        TSharedPtr<IVoiceCapture> VC = TryOpenDevice(PreferredDeviceName, SampleRate);
+        if (VC.IsValid())
+        {
+            UE_LOG(LogNeocortex, Log, TEXT("Using preferred mic device: %s"), *PreferredDeviceName);
+            return VC;
+        }
+        UE_LOG(LogNeocortex, Warning, TEXT("Preferred mic device '%s' unavailable, falling back"), *PreferredDeviceName);
+    }
+
+    // Fall back: iterate all devices and take the first working one.
     TArray<Audio::FCaptureDeviceInfo> Devices;
     Audio::FAudioCapture Capture;
-
     if (Capture.GetCaptureDevicesAvailable(Devices))
     {
-        for (const auto& Info : Devices)
+        for (const Audio::FCaptureDeviceInfo& Info : Devices)
         {
             const int32 DeviceRate = SanitizeSampleRate(Info.PreferredSampleRate);
-            UE_LOG(LogNeocortex, Log, TEXT("Trying VoiceCapture device: %s (pref %d Hz, %d ch)"),
-                   *Info.DeviceName, Info.PreferredSampleRate, Info.InputChannels);
-
-            // Force mono and sanitized rate
-            TSharedPtr<IVoiceCapture> VC = FVoiceModule::Get().CreateVoiceCapture(
-                Info.DeviceName, DeviceRate, /*Channels*/ 1);
-
-            if (!VC.IsValid())
-            {
-                UE_LOG(LogNeocortex, Warning, TEXT("CreateVoiceCapture failed: %s"), *Info.DeviceName);
-                continue;
-            }
-            if (!VC->Start())
-            {
-                UE_LOG(LogNeocortex, Warning, TEXT("VoiceCapture->Start() failed: %s"), *Info.DeviceName);
-                continue;
-            }
+            TSharedPtr<IVoiceCapture> VC = FVoiceModule::Get().CreateVoiceCapture(Info.DeviceName, DeviceRate, 1);
+            if (!VC.IsValid() || !VC->Start()) continue;
             VC->Stop();
-            SampleRate = DeviceRate; // lock to working rate
+            SampleRate = DeviceRate;
+            UE_LOG(LogNeocortex, Log, TEXT("Using mic device: %s"), *Info.DeviceName);
             return VC;
         }
     }
 
-    UE_LOG(LogNeocortex, Log, TEXT("Trying VoiceCapture default device"));
-    TSharedPtr<IVoiceCapture> DefaultVC = FVoiceModule::Get().CreateVoiceCapture(TEXT(""));
-    if (DefaultVC.IsValid())
+    TSharedPtr<IVoiceCapture> DefaultVC = FVoiceModule::Get().CreateVoiceCapture(TEXT(""), SampleRate, 1);
+    if (DefaultVC.IsValid() && DefaultVC->Start())
     {
-        if (DefaultVC->Start())
-        {
-            DefaultVC->Stop();
-            return DefaultVC;
-        }
+        DefaultVC->Stop();
+        return DefaultVC;
     }
 
     return nullptr;
@@ -118,8 +145,15 @@ static void Decimate48kTo16k(const TArray<int16>& InMono48k, TArray<int16>& OutM
 FNeocortexMicrophoneRecorder::FNeocortexMicrophoneRecorder(int32 InSampleRate, int32 InNumChannels)
     : SampleRate(SanitizeSampleRate(InSampleRate)), NumChannels(1) // enforce mono
 {
-    ListInputDevices();
-    VoiceCapture = CreateWorkingVoiceCapture(SampleRate, NumChannels);
+    VoiceCapture = CreateWorkingVoiceCapture(SampleRate, NumChannels, PreferredDeviceName);
+}
+
+void FNeocortexMicrophoneRecorder::SetPreferredDevice(const FString& DeviceName)
+{
+    PreferredDeviceName = DeviceName;
+    // Recreate the capture device so it takes effect on the next StartRecording().
+    if (bIsRecording) StopRecording();
+    VoiceCapture = CreateWorkingVoiceCapture(SampleRate, NumChannels, PreferredDeviceName);
 }
 
 FNeocortexMicrophoneRecorder::~FNeocortexMicrophoneRecorder()
@@ -131,7 +165,7 @@ bool FNeocortexMicrophoneRecorder::StartRecording()
 {
     if (!VoiceCapture.IsValid())
     {
-        VoiceCapture = CreateWorkingVoiceCapture(SampleRate, NumChannels);
+        VoiceCapture = CreateWorkingVoiceCapture(SampleRate, NumChannels, PreferredDeviceName);
         if (!VoiceCapture.IsValid())
         {
             UE_LOG(LogNeocortex, Error, TEXT("Failed to create VoiceCapture device"));
@@ -178,7 +212,23 @@ void FNeocortexMicrophoneRecorder::Tick(float /*DeltaTime*/)
         if (ReadBytes > 0)
         {
             PcmBuffer.Append(Temp.GetData(), ReadBytes);
+
+            // Compute RMS amplitude of this chunk for UI display.
+            const int32 NumSamples = static_cast<int32>(ReadBytes) / sizeof(int16);
+            const int16* Samples = reinterpret_cast<const int16*>(Temp.GetData());
+            float SumSq = 0.f;
+            for (int32 i = 0; i < NumSamples; ++i)
+            {
+                const float S = Samples[i] / 32768.f;
+                SumSq += S * S;
+            }
+            Amplitude = NumSamples > 0 ? FMath::Sqrt(SumSq / NumSamples) : 0.f;
         }
+    }
+    else
+    {
+        // Decay amplitude when no new data arrives.
+        Amplitude = FMath::Max(0.f, Amplitude - 0.05f);
     }
 }
 
