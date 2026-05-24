@@ -43,8 +43,7 @@ static TSharedPtr<IVoiceCapture> TryOpenDevice(const FString& DeviceName, int32&
         if (!Info.DeviceName.Equals(DeviceName, ESearchCase::IgnoreCase)) continue;
         const int32 DeviceRate = SanitizeSampleRate(Info.PreferredSampleRate);
         TSharedPtr<IVoiceCapture> VC = FVoiceModule::Get().CreateVoiceCapture(Info.DeviceName, DeviceRate, 1);
-        if (!VC.IsValid() || !VC->Start()) return nullptr;
-        VC->Stop();
+        if (!VC.IsValid()) return nullptr;
         SampleRate = DeviceRate;
         return VC;
     }
@@ -77,22 +76,126 @@ static TSharedPtr<IVoiceCapture> CreateWorkingVoiceCapture(int32& SampleRate, in
         {
             const int32 DeviceRate = SanitizeSampleRate(Info.PreferredSampleRate);
             TSharedPtr<IVoiceCapture> VC = FVoiceModule::Get().CreateVoiceCapture(Info.DeviceName, DeviceRate, 1);
-            if (!VC.IsValid() || !VC->Start()) continue;
-            VC->Stop();
+            if (!VC.IsValid()) continue;
             SampleRate = DeviceRate;
-            UE_LOG(LogNeocortex, Log, TEXT("Using mic device: %s"), *Info.DeviceName);
+            UE_LOG(LogNeocortex, Log, TEXT("Using mic device: %s at %d Hz"), *Info.DeviceName, DeviceRate);
             return VC;
         }
     }
 
     TSharedPtr<IVoiceCapture> DefaultVC = FVoiceModule::Get().CreateVoiceCapture(TEXT(""), SampleRate, 1);
-    if (DefaultVC.IsValid() && DefaultVC->Start())
+    if (DefaultVC.IsValid())
     {
-        DefaultVC->Stop();
         return DefaultVC;
     }
 
     return nullptr;
+}
+
+// ---------------------------------------------------------------------------
+// Resampling
+// ---------------------------------------------------------------------------
+
+// Downmix stereo PCM16 bytes to a mono int16 array.
+static void DownmixStereoToMono16(const uint8* InStereoBytes, int32 NumBytes, TArray<int16>& OutMono16)
+{
+    const int32 NumSamples16 = NumBytes / sizeof(int16);
+    const int16* Src = reinterpret_cast<const int16*>(InStereoBytes);
+    OutMono16.Reset();
+    OutMono16.Reserve(NumSamples16 / 2);
+    for (int32 i = 0; i + 1 < NumSamples16; i += 2)
+    {
+        const int32 L = Src[i];
+        const int32 R = Src[i + 1];
+        OutMono16.Add(static_cast<int16>((L + R) / 2));
+    }
+}
+
+// Linear-interpolation resampler. Works for any rate ratio.
+// Not studio quality, but avoids the aliasing of naive decimation.
+// For voice/speech this is more than sufficient.
+static void ResampleMono(const TArray<int16>& In, int32 InRate, TArray<int16>& Out, int32 OutRate)
+{
+    if (InRate == OutRate)
+    {
+        Out = In;
+        return;
+    }
+    if (In.IsEmpty())
+    {
+        Out.Empty();
+        return;
+    }
+
+    const double Ratio    = static_cast<double>(InRate) / OutRate;
+    const int32  OutCount = FMath::Max(1, static_cast<int32>(In.Num() / Ratio));
+    Out.SetNumUninitialized(OutCount);
+
+    for (int32 i = 0; i < OutCount; ++i)
+    {
+        const double SrcPos = i * Ratio;
+        const int32  Idx0   = static_cast<int32>(SrcPos);
+        const int32  Idx1   = FMath::Min(Idx0 + 1, In.Num() - 1);
+        const double Frac   = SrcPos - Idx0;
+        Out[i] = static_cast<int16>(In[Idx0] + static_cast<int32>((In[Idx1] - In[Idx0]) * Frac));
+    }
+}
+
+// ---------------------------------------------------------------------------
+// FNeocortexMicrophoneRecorder
+// ---------------------------------------------------------------------------
+
+FNeocortexMicrophoneRecorder::FNeocortexMicrophoneRecorder(int32 InSampleRate, int32 InNumChannels)
+    : SampleRate(SanitizeSampleRate(InSampleRate)), NumChannels(1) // enforce mono
+{
+    VoiceCapture = CreateWorkingVoiceCapture(SampleRate, NumChannels, PreferredDeviceName);
+    // Prewarm: start the device now so the hardware pipeline is ready before the
+    // first StartRecording() call. Without this, the first ~300ms of speech is
+    // lost while the OS microphone driver initialises.
+    StartPrewarm();
+}
+
+FNeocortexMicrophoneRecorder::~FNeocortexMicrophoneRecorder()
+{
+    bIsRecording = false;
+    StopPrewarm();
+}
+
+void FNeocortexMicrophoneRecorder::StartPrewarm()
+{
+    if (!VoiceCapture.IsValid() || bIsPrewarmed)
+        return;
+
+    if (VoiceCapture->Start())
+    {
+        bIsPrewarmed = true;
+        UE_LOG(LogNeocortex, Log, TEXT("Mic prewarmed at %d Hz"), SampleRate);
+    }
+    else
+    {
+        UE_LOG(LogNeocortex, Warning, TEXT("Mic prewarm failed"));
+    }
+}
+
+void FNeocortexMicrophoneRecorder::StopPrewarm()
+{
+    if (VoiceCapture.IsValid() && bIsPrewarmed)
+    {
+        VoiceCapture->Stop();
+        bIsPrewarmed = false;
+        UE_LOG(LogNeocortex, Log, TEXT("Mic prewarm stopped"));
+    }
+}
+
+void FNeocortexMicrophoneRecorder::SetPreferredDevice(const FString& DeviceName)
+{
+    PreferredDeviceName = DeviceName;
+
+    bIsRecording = false;
+    StopPrewarm();
+
+    VoiceCapture = CreateWorkingVoiceCapture(SampleRate, NumChannels, PreferredDeviceName);
+    StartPrewarm();
 }
 
 void FNeocortexMicrophoneRecorder::ListInputDevices() const
@@ -115,52 +218,6 @@ void FNeocortexMicrophoneRecorder::ListInputDevices() const
     }
 }
 
-
-// Optional helpers if you ever receive stereo or need 16k output for STT.
-static void DownmixStereoToMono16(const uint8* InStereoBytes, int32 NumBytes, TArray<int16>& OutMono16)
-{
-    const int32 NumSamples16 = NumBytes / sizeof(int16);
-    const int16* Src = reinterpret_cast<const int16*>(InStereoBytes);
-    OutMono16.Reset();
-    OutMono16.Reserve(NumSamples16 / 2);
-    for (int32 i = 0; i + 1 < NumSamples16; i += 2)
-    {
-        const int32 L = Src[i];
-        const int32 R = Src[i + 1];
-        const int16 M = static_cast<int16>((L + R) / 2);
-        OutMono16.Add(M);
-    }
-}
-
-static void Decimate48kTo16k(const TArray<int16>& InMono48k, TArray<int16>& OutMono16k)
-{
-    OutMono16k.Reset();
-    OutMono16k.Reserve(InMono48k.Num() / 3);
-    for (int32 i = 0; i < InMono48k.Num(); i += 3)
-    {
-        OutMono16k.Add(InMono48k[i]);
-    }
-}
-
-FNeocortexMicrophoneRecorder::FNeocortexMicrophoneRecorder(int32 InSampleRate, int32 InNumChannels)
-    : SampleRate(SanitizeSampleRate(InSampleRate)), NumChannels(1) // enforce mono
-{
-    VoiceCapture = CreateWorkingVoiceCapture(SampleRate, NumChannels, PreferredDeviceName);
-}
-
-void FNeocortexMicrophoneRecorder::SetPreferredDevice(const FString& DeviceName)
-{
-    PreferredDeviceName = DeviceName;
-    // Recreate the capture device so it takes effect on the next StartRecording().
-    if (bIsRecording) StopRecording();
-    VoiceCapture = CreateWorkingVoiceCapture(SampleRate, NumChannels, PreferredDeviceName);
-}
-
-FNeocortexMicrophoneRecorder::~FNeocortexMicrophoneRecorder()
-{
-    StopRecording();
-}
-
 bool FNeocortexMicrophoneRecorder::StartRecording()
 {
     if (!VoiceCapture.IsValid())
@@ -173,31 +230,44 @@ bool FNeocortexMicrophoneRecorder::StartRecording()
         }
     }
 
-    UE_LOG(LogNeocortex, Log, TEXT("Starting microphone recording at %d Hz, %d ch"), SampleRate, NumChannels);
-
     PcmBuffer.Reset();
+
+    if (bIsPrewarmed)
+    {
+        // Device is already running — just start accumulating. No startup latency.
+        bIsRecording = true;
+        UE_LOG(LogNeocortex, Log, TEXT("Recording started (prewarmed) at %d Hz mono"), SampleRate);
+        return true;
+    }
+
+    // Cold start fallback (prewarm failed earlier).
+    UE_LOG(LogNeocortex, Log, TEXT("Recording cold-start at %d Hz mono"), SampleRate);
     bIsRecording = VoiceCapture->Start();
     if (!bIsRecording)
     {
         UE_LOG(LogNeocortex, Error, TEXT("VoiceCapture start failed"));
         return false;
     }
+    bIsPrewarmed = true;
     return true;
 }
 
 void FNeocortexMicrophoneRecorder::StopRecording()
 {
-    if (VoiceCapture.IsValid() && bIsRecording)
-    {
-        UE_LOG(LogNeocortex, Log, TEXT("Stopping microphone recording"));
-        VoiceCapture->Stop();
-        bIsRecording = false;
-    }
+    if (!bIsRecording)
+        return;
+
+    UE_LOG(LogNeocortex, Log, TEXT("Recording stopped — %d bytes captured"), PcmBuffer.Num());
+    bIsRecording = false;
+    // Keep VoiceCapture running as prewarm so the next StartRecording() is instant.
 }
 
 void FNeocortexMicrophoneRecorder::Tick(float /*DeltaTime*/)
 {
-    if (!bIsRecording || !VoiceCapture.IsValid())
+    // Always drain the VoiceCapture buffer, even when not recording, so the
+    // internal ring buffer doesn't overflow and stale data never bleeds into
+    // the next recording.
+    if (!VoiceCapture.IsValid() || !bIsPrewarmed)
         return;
 
     uint32 BytesAvailable = 0;
@@ -211,9 +281,13 @@ void FNeocortexMicrophoneRecorder::Tick(float /*DeltaTime*/)
         VoiceCapture->GetVoiceData(Temp.GetData(), BytesAvailable, ReadBytes);
         if (ReadBytes > 0)
         {
-            PcmBuffer.Append(Temp.GetData(), ReadBytes);
+            // Accumulate only during an active recording.
+            if (bIsRecording)
+            {
+                PcmBuffer.Append(Temp.GetData(), ReadBytes);
+            }
 
-            // Compute RMS amplitude of this chunk for UI display.
+            // Always update amplitude (drives the UI bar even before recording starts).
             const int32 NumSamples = static_cast<int32>(ReadBytes) / sizeof(int16);
             const int16* Samples = reinterpret_cast<const int16*>(Temp.GetData());
             float SumSq = 0.f;
@@ -227,51 +301,39 @@ void FNeocortexMicrophoneRecorder::Tick(float /*DeltaTime*/)
     }
     else
     {
-        // Decay amplitude when no new data arrives.
         Amplitude = FMath::Max(0.f, Amplitude - 0.05f);
     }
 }
 
 TArray<uint8> FNeocortexMicrophoneRecorder::GetWavData() const
 {
-    // PcmBuffer is expected as 16-bit PCM mono at SampleRate
+    // PcmBuffer holds 16-bit PCM mono at SampleRate.
     return FNeocortexWavEncoder::EncodePcm16ToWav(PcmBuffer, SampleRate, /*Channels*/ 1);
 }
 
-// If you need 16k mono output for STT:
 TArray<uint8> FNeocortexMicrophoneRecorder::GetWavData16kMono() const
 {
-    // Interpret PcmBuffer as int16 mono at SampleRate
-    const int32 NumSamples = PcmBuffer.Num() / sizeof(int16);
-    const int16* Src = reinterpret_cast<const int16*>(PcmBuffer.GetData());
+    if (SampleRate == 16000)
+    {
+        // Already at target rate.
+        return FNeocortexWavEncoder::EncodePcm16ToWav(PcmBuffer, 16000, 1);
+    }
 
+    const int32 NumSamples = PcmBuffer.Num() / sizeof(int16);
     TArray<int16> MonoIn;
     MonoIn.SetNumUninitialized(NumSamples);
-    FMemory::Memcpy(MonoIn.GetData(), Src, PcmBuffer.Num());
+    FMemory::Memcpy(MonoIn.GetData(), PcmBuffer.GetData(), PcmBuffer.Num());
 
     TArray<int16> Mono16k;
-    if (SampleRate == 48000)
-    {
-        Decimate48kTo16k(MonoIn, Mono16k);
-    }
-    else if (SampleRate == 16000)
-    {
-        Mono16k = MonoIn;
-    }
-    else
-    {
-        // Fallback: keep as-is; add proper resampler for other rates if needed
-        Mono16k = MonoIn;
-    }
+    ResampleMono(MonoIn, SampleRate, Mono16k, 16000);
 
-    // Encode as 16k mono WAV
     return FNeocortexWavEncoder::EncodePcm16ToWav(
-        TArray<uint8>((uint8*)Mono16k.GetData(), Mono16k.Num() * sizeof(int16)),
+        TArray<uint8>(reinterpret_cast<const uint8*>(Mono16k.GetData()), Mono16k.Num() * sizeof(int16)),
         16000, 1);
 }
 
 bool FNeocortexMicrophoneRecorder::Supports16kMono() const
 {
-    // Native 16k or 48k (exact decimation factor of 3) are supported
+    // Linear interpolation handles any rate, but only flag rates we tested.
     return SampleRate == 16000 || SampleRate == 48000;
 }

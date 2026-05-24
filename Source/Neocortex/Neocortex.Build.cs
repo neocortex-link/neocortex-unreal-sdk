@@ -26,7 +26,7 @@ public class Neocortex : ModuleRules
 
 		PrivateDependencyModuleNames.AddRange(new[] {
 			"CoreUObject", "Engine", "Slate", "SlateCore", "Json", "JsonUtilities",
-			"HTTP", "UMG", "Projects", "DeveloperSettings", "AudioCaptureCore"
+			"HTTP", "UMG", "Projects", "DeveloperSettings", "AudioCaptureCore", "AudioCapture"
 		});
 		
 		

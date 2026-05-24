@@ -91,25 +91,18 @@ void UNeocortexMicrophoneRecorderComponent::StopRecording(bool bAutoTranscribe)
 
 	Recorder->StopRecording();
 
-	// Use device-native WAV for debug/playback
+	// Always encode at the device's native sample rate. The transcription API
+	// (Whisper) handles any rate and resamples internally. Sending native-rate
+	// audio avoids the quality loss of any client-side resampling.
 	const TArray<uint8> Wav = Recorder->GetWavData();
 	OnWavReady.Broadcast(Wav);
 	LastWavBytes = Wav;
 
-
-	// For STT, prefer 16k mono if available
 	if (bAutoTranscribe && SmartAgent)
 	{
-		UE_LOG(LogNeocortex, Log, TEXT("Auto-transcribing recorded audio"));
-		if (Recorder->Supports16kMono())
-		{
-			const TArray<uint8> Wav16kMono = Recorder->GetWavData16kMono();
-			SmartAgent->TranscribeBytes(Wav16kMono);
-		}
-		else
-		{
-			SmartAgent->TranscribeBytes(Wav);
-		}
+		UE_LOG(LogNeocortex, Log, TEXT("Auto-transcribing recorded audio (%d bytes, %d Hz)"),
+			Wav.Num(), Recorder->GetSampleRate());
+		SmartAgent->TranscribeBytes(Wav);
 	}
 }
 
@@ -117,10 +110,17 @@ void UNeocortexMicrophoneRecorderComponent::TickComponent(float DeltaTime, ELeve
 {
 	Super::TickComponent(DeltaTime, TickType, ThisTickFunction);
 
-	if (Recorder.IsValid() && Recorder->IsRecording())
+	if (Recorder.IsValid())
 	{
+		// Always tick so the VoiceCapture buffer is drained during prewarm.
+		// Without this, stale audio from the prewarm period would bleed into
+		// the start of the next recording.
 		Recorder->Tick(DeltaTime);
-		EmitNewChunks();
+
+		if (Recorder->IsRecording())
+		{
+			EmitNewChunks();
+		}
 	}
 }
 

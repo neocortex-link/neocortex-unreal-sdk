@@ -90,7 +90,10 @@ private:
     /** Accumulated PCM16 audio samples (little-endian, interleaved). */
     TArray<uint8> PcmBuffer;
 
-    /** True when actively capturing audio. */
+    /** True when the VoiceCapture device is open and running (includes prewarm phase). */
+    bool bIsPrewarmed = false;
+
+    /** True when actively accumulating audio into PcmBuffer. */
     bool bIsRecording = false;
 
     /** Device name to try first; empty means auto-select the first working device. */
@@ -104,4 +107,10 @@ private:
 
     /** Number of audio channels (1=mono, 2=stereo). */
     int32 NumChannels = 2;
+
+    /** Starts the VoiceCapture device without opening recording. */
+    void StartPrewarm();
+
+    /** Stops the VoiceCapture device entirely. */
+    void StopPrewarm();
 };
