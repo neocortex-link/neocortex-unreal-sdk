@@ -79,7 +79,8 @@ public:
     void AudioToText(const FString& CharacterId,
                      const TArray<uint8>& WavBytes,
                      FNeocortexTranscribeDelegate OnTranscribeResponse,
-                     FNeocortexErrorDelegate OnFail);
+                     FNeocortexErrorDelegate OnFail,
+                     const FString& Language = TEXT(""));
 
     /** Transcribes audio then sends the result as a chat message, returning both text and audio responses. */
     void AudioToAudio(const FString& CharacterId,
@@ -88,7 +89,8 @@ public:
                       FNeocortexAudioDelegate OnAudioResponse,
                       FNeocortexErrorDelegate OnFail,
                       const FString& Metadata = TEXT(""),
-                      const FString& Events = TEXT(""));
+                      const FString& Events = TEXT(""),
+                      const FString& Language = TEXT(""));
 
     /**
      * Retrieves chat history for a character.

@@ -47,6 +47,11 @@ public:
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Neocortex|Interactables", meta = (EditCondition = "bIncludeAllInteractables && bUseRadiusFilter", ClampMin = "0.0"))
     float SearchRadius = 2000.0f;
 
+    /** ISO 639-1 language code to lock speech transcription for this agent (e.g. "en", "ar", "fr").
+     *  Overrides the project-level default in Neocortex settings. Leave empty to use the global default (or auto-detect if that is also empty). */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Neocortex")
+    FString Language;
+
     /** Fired when a text chat response is received. */
     UPROPERTY(BlueprintAssignable, Category = "Neocortex|Events")
     FOnSmartAgentChat OnChat;
@@ -129,6 +134,9 @@ private:
      * @return JSON string of interactables metadata, or empty string if disabled
      */
     FString GetMetadata() const;
+
+    /** Resolves the effective transcription language: per-agent Language → global UNeocortexSettings::Language → empty (auto-detect). */
+    FString GetLanguage() const;
 
     /** Handler for text chat responses. */
     void OnChatResponse(const FNeocortexChatResponseData& ChatResponse);

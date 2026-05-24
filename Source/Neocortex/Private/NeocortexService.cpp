@@ -141,7 +141,8 @@ void UNeocortexService::TextToAudio(const FString& CharacterId, const FString& M
 }
 
 void UNeocortexService::AudioToText(const FString& CharacterId, const TArray<uint8>& WavBytes,
-                                     FNeocortexTranscribeDelegate OnTranscribeResponse, FNeocortexErrorDelegate OnFail)
+                                     FNeocortexTranscribeDelegate OnTranscribeResponse, FNeocortexErrorDelegate OnFail,
+                                     const FString& Language)
 {
     if (CharacterId.IsEmpty())
     {
@@ -151,6 +152,8 @@ void UNeocortexService::AudioToText(const FString& CharacterId, const TArray<uin
 
     TMap<FString, FString> Fields;
     Fields.Add(TEXT("characterId"), CharacterId);
+    if (!Language.IsEmpty())
+        Fields.Add(TEXT("language"), Language);
 
     TWeakObjectPtr<UNeocortexService> WeakThis(this);
     HttpRef->PostMultipart(TEXT("audio/transcribe"), Fields,
@@ -172,7 +175,8 @@ void UNeocortexService::AudioToText(const FString& CharacterId, const TArray<uin
 
 void UNeocortexService::AudioToAudio(const FString& CharacterId, const TArray<uint8>& WavBytes,
                                       FNeocortexChatDelegate OnChatResponse, FNeocortexAudioDelegate OnAudioResponse,
-                                      FNeocortexErrorDelegate OnFail, const FString& Metadata, const FString& Events)
+                                      FNeocortexErrorDelegate OnFail, const FString& Metadata, const FString& Events,
+                                      const FString& Language)
 {
     TWeakObjectPtr<UNeocortexService> WeakThis(this);
     AudioToText(CharacterId, WavBytes,
@@ -182,7 +186,8 @@ void UNeocortexService::AudioToAudio(const FString& CharacterId, const TArray<ui
                 if (!WeakThis.IsValid()) return;
                 WeakThis->TextToAudio(CharacterId, Transcription.Response, OnChatResponse, OnAudioResponse, OnFail, Metadata, Events);
             }),
-        OnFail);
+        OnFail,
+        Language);
 }
 
 void UNeocortexService::GetChatHistory(const FString& CharacterId, int32 Limit,

@@ -1,6 +1,7 @@
 #include "NeocortexSmartAgent.h"
 #include "Neocortex.h"
 #include "NeocortexService.h"
+#include "NeocortexSettings.h"
 #include "NeocortexSubsystem.h"
 #include "NeocortexSessionManager.h"
 #include "NeocortexEventLogger.h"
@@ -44,6 +45,13 @@ FString UNeocortexSmartAgent::GetMetadata() const
     }
 
     return Subsystem->CreateInteractablesMetadata();
+}
+
+FString UNeocortexSmartAgent::GetLanguage() const
+{
+    if (!Language.IsEmpty()) return Language;
+    const UNeocortexSettings* S = GetDefault<UNeocortexSettings>();
+    return S ? S->Language : FString();
 }
 
 void UNeocortexSmartAgent::SendMessage(const FString& Message)
@@ -121,7 +129,8 @@ void UNeocortexSmartAgent::TranscribeBytes(const TArray<uint8>& Data)
         ProjectId,
         Data,
         FNeocortexTranscribeDelegate::CreateUObject(this, &UNeocortexSmartAgent::OnTranscribeResponse),
-        FNeocortexErrorDelegate::CreateUObject(this, &UNeocortexSmartAgent::OnServiceFail));
+        FNeocortexErrorDelegate::CreateUObject(this, &UNeocortexSmartAgent::OnServiceFail),
+        GetLanguage());
 }
 
 void UNeocortexSmartAgent::SendAudioForAudio(const TArray<uint8>& WavData)
@@ -148,7 +157,8 @@ void UNeocortexSmartAgent::SendAudioForAudio(const TArray<uint8>& WavData)
         FNeocortexAudioDelegate::CreateUObject(this, &UNeocortexSmartAgent::OnAudioResponse),
         FNeocortexErrorDelegate::CreateUObject(this, &UNeocortexSmartAgent::OnServiceFail),
         Metadata,
-        Events);
+        Events,
+        GetLanguage());
 }
 
 void UNeocortexSmartAgent::GetChatHistory(int32 Limit)

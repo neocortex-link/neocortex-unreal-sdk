@@ -25,6 +25,12 @@ public:
 	UPROPERTY(Config, EditAnywhere, BlueprintReadWrite, Category = "Settings", meta = (DisplayName = "API Key", ToolTip = "The API Key is used to authenticate your application with the NeoCortex API. You can find it in your NeoCortex account settings."))
 	FString ApiKey;
 
+	/** ISO 639-1 language code to lock transcription language (e.g. "en", "ar", "fr").
+	 *  Leave empty to let the backend auto-detect the spoken language.
+	 *  Can be overridden per-agent on UNeocortexSmartAgent. */
+	UPROPERTY(Config, EditAnywhere, BlueprintReadWrite, Category = "Settings", meta = (DisplayName = "Transcription Language", ToolTip = "ISO 639-1 language code sent with audio transcription requests. Leave empty for auto-detection. Can be overridden per-agent."))
+	FString Language;
+
 #if WITH_EDITOR
 	virtual void PostEditChangeProperty(FPropertyChangedEvent& PropertyChangedEvent) override;
 
