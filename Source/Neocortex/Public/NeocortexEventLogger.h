@@ -25,7 +25,7 @@ public:
 
     /**
      * Returns current events as a compact JSON string and clears the log (consume semantics).
-     * Called internally by UNeocortexSmartAgent before each request — not needed in Blueprint.
+     * Called internally by UNeocortexSmartAgent before each request; not needed in Blueprint.
      */
     static FString ConsumeLogsJson(UObject* WorldContextObject);
 };

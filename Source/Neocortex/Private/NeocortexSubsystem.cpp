@@ -6,7 +6,6 @@
 #include "NeocortexInteractableComponent.h"
 #include "Neocortex.h"
 #include "Dom/JsonObject.h"
-#include "JsonObjectConverter.h"
 #include "Serialization/JsonSerializer.h"
 #include "Serialization/JsonWriter.h"
 #include "Policies/CondensedJsonPrintPolicy.h"
@@ -22,12 +21,7 @@ void UNeocortexSubsystem::Initialize(FSubsystemCollectionBase& Collection)
 	SessionManager = NewObject<UNeocortexSessionManager>(this);
 	Service = NewObject<UNeocortexService>(this);
 
-	FNeocortexHttpOptions Options;
-	Options.TimeoutSeconds = 30;
-	Options.MaxRetries = 2;
-	Options.RetryBackoffSeconds = 0.5f;
-
-	Http->Init(TEXT("https://api.neocortex.link/v2"), Options);
+	Http->Init(GetDefault<UNeocortexSettings>()->GetBaseUrl());
 	SessionManager->Init(TEXT("NeocortexSessions"), TEXT("Session_"));
 	Service->Init(Http, SessionManager);
 
@@ -36,7 +30,7 @@ void UNeocortexSubsystem::Initialize(FSubsystemCollectionBase& Collection)
 	GetMutableDefault<UNeocortexSettings>()->SettingsChanged.BindLambda([this](const FName& PropertyName)
 	{
 		if (Http && PropertyName == GET_MEMBER_NAME_CHECKED(UNeocortexSettings, ApiKey))
-			Http->SetApiKey(GetDefault<UNeocortexSettings>()->ApiKey);
+			Http->SetApiKey(GetDefault<UNeocortexSettings>()->ApiKey.TrimStartAndEnd());
 	});
 #endif
 }
@@ -115,16 +109,37 @@ TArray<UNeocortexInteractableComponent*> UNeocortexSubsystem::GetInteractablesIn
 	return NearbyInteractables;
 }
 
-FString UNeocortexSubsystem::SerializeInteractables(const TArray<UNeocortexInteractableComponent*>& Components)
+FString UNeocortexSubsystem::SerializeInteractables(const TArray<FNeocortexInteractable>& Entities)
 {
-	if (Components.IsEmpty()) return TEXT("");
+	if (Entities.IsEmpty()) return TEXT("");
 
 	TArray<TSharedPtr<FJsonValue>> JsonArray;
-	JsonArray.Reserve(Components.Num());
-	for (UNeocortexInteractableComponent* Component : Components)
+	JsonArray.Reserve(Entities.Num());
+	for (const FNeocortexInteractable& Entity : Entities)
 	{
-		TSharedPtr<FJsonObject> Obj = FJsonObjectConverter::UStructToJsonObject(Component->ToNeocortexInteractable());
-		if (Obj.IsValid()) JsonArray.Add(MakeShared<FJsonValueObject>(Obj));
+		TSharedRef<FJsonObject> Position = MakeShared<FJsonObject>();
+		Position->SetNumberField(TEXT("x"), Entity.Position.X);
+		Position->SetNumberField(TEXT("y"), Entity.Position.Y);
+		Position->SetNumberField(TEXT("z"), Entity.Position.Z);
+
+		TArray<TSharedPtr<FJsonValue>> Properties;
+		for (const FNeocortexInteractableProperty& Property : Entity.Properties)
+		{
+			TSharedRef<FJsonObject> Pair = MakeShared<FJsonObject>();
+			Pair->SetStringField(TEXT("name"), Property.Name);
+			Pair->SetStringField(TEXT("value"), Property.Value);
+			Properties.Add(MakeShared<FJsonValueObject>(Pair));
+		}
+
+		TSharedRef<FJsonObject> Obj = MakeShared<FJsonObject>();
+		Obj->SetStringField(TEXT("id"), Entity.Id);
+		Obj->SetStringField(TEXT("name"), Entity.Name);
+		Obj->SetObjectField(TEXT("position"), Position);
+		Obj->SetArrayField(TEXT("properties"), Properties);
+		Obj->SetStringField(TEXT("type"), Entity.Type);
+		Obj->SetBoolField(TEXT("isSubject"), Entity.IsSubject);
+		if (!Entity.CharacterId.IsEmpty()) Obj->SetStringField(TEXT("characterId"), Entity.CharacterId);
+		JsonArray.Add(MakeShared<FJsonValueObject>(Obj));
 	}
 
 	FString Json;
@@ -134,14 +149,57 @@ FString UNeocortexSubsystem::SerializeInteractables(const TArray<UNeocortexInter
 	return Json;
 }
 
+static TArray<FNeocortexInteractable> ToEntities(const TArray<UNeocortexInteractableComponent*>& Components)
+{
+	TArray<FNeocortexInteractable> Out;
+	Out.Reserve(Components.Num());
+	for (const UNeocortexInteractableComponent* Component : Components)
+	{
+		Out.Add(Component->ToNeocortexInteractable());
+	}
+	return Out;
+}
+
 FString UNeocortexSubsystem::CreateInteractablesMetadata() const
 {
-	return SerializeInteractables(GetAllInteractables());
+	return SerializeInteractables(ToEntities(GetAllInteractables()));
 }
 
 FString UNeocortexSubsystem::CreateInteractablesMetadataInRadius(const FVector& Location, float Radius) const
 {
-	return SerializeInteractables(GetInteractablesInRadius(Location, Radius));
+	return SerializeInteractables(ToEntities(GetInteractablesInRadius(Location, Radius)));
+}
+
+FString UNeocortexSubsystem::CreatePerceptionMetadata(const FVector& Origin, float Radius, int32 MaxEntities,
+	const FString& SelfCharacterId, const FString& SelfName) const
+{
+	TArray<FNeocortexInteractable> Entities = ToEntities(Radius > 0.0f ? GetInteractablesInRadius(Origin, Radius) : GetAllInteractables());
+	Entities.Sort([&Origin](const FNeocortexInteractable& A, const FNeocortexInteractable& B)
+	{
+		return FVector::DistSquared(Origin, A.Position) < FVector::DistSquared(Origin, B.Position);
+	});
+	if (Entities.Num() > FMath::Max(1, MaxEntities))
+	{
+		Entities.SetNum(FMath::Max(1, MaxEntities));
+	}
+
+	// The server presents the entry carrying the speaker's id as the character itself.
+	const bool bRepresented = SelfCharacterId.IsEmpty() || Entities.ContainsByPredicate(
+		[&SelfCharacterId](const FNeocortexInteractable& E) { return E.CharacterId == SelfCharacterId; });
+	if (!bRepresented)
+	{
+		FNeocortexInteractable Me;
+		Me.Id = SelfCharacterId;
+		Me.CharacterId = SelfCharacterId;
+		Me.Name = SelfName;
+		Me.Position = Origin;
+		Me.Type = TEXT("CHARACTER");
+		Me.Properties.Add({ TEXT("name"), SelfName });
+		Me.Properties.Add({ TEXT("kind"), TEXT("character") });
+		Entities.Insert(Me, 0);
+	}
+
+	return SerializeInteractables(Entities);
 }
 
 void UNeocortexSubsystem::PushEvent(ENeocortexEventPriority Priority, const FString& Content)

@@ -4,43 +4,117 @@
 #include "Neocortex.h"
 #include "NeocortexSettings.h"
 #include "Async/Async.h"
+#include "Containers/Ticker.h"
+#include "Dom/JsonObject.h"
+#include "Serialization/JsonReader.h"
+#include "Serialization/JsonSerializer.h"
 
-void UNeocortexHttpClient::Init(const FString& InBaseUrl, const FNeocortexHttpOptions& HttpOptions)
+FString UNeocortexHttpClient::BaseUrlOverride;
+
+// How much of an unrecognised error body is worth repeating in a message.
+static constexpr int32 MaxErrorBodyChars = 200;
+
+void UNeocortexHttpClient::Init(const FString& InBaseUrl)
 {
     BaseUrl = InBaseUrl;
-    Opts = HttpOptions;
-    Opts.ApiKey = GetDefault<UNeocortexSettings>()->ApiKey;
+    BaseUrl.RemoveFromEnd(TEXT("/"));
+    ApiKey = GetDefault<UNeocortexSettings>()->ApiKey.TrimStartAndEnd();
     UE_LOG(LogNeocortex, Log, TEXT("UNeocortexHttpClient initialized (base: %s)"), *BaseUrl);
+}
+
+FNeocortexRequestError UNeocortexHttpClient::MakeError(const FHttpResponsePtr& Resp, bool bTimedOut, const FString& Url)
+{
+    return Resp.IsValid()
+        ? MakeError(Resp->GetResponseCode(), Resp->GetContentAsString(), bTimedOut, Url)
+        : MakeError(0, FString(), bTimedOut, Url);
+}
+
+FNeocortexRequestError UNeocortexHttpClient::MakeError(int32 Status, const FString& Body, bool bTimedOut, const FString& Url)
+{
+    FNeocortexRequestError E;
+    E.Url = Url;
+    E.bTimedOut = bTimedOut;
+    if (Status <= 0)
+    {
+        E.Message = bTimedOut ? TEXT("The request timed out.") : TEXT("Could not reach the Neocortex API.");
+        return E;
+    }
+
+    E.Status = Status;
+    TSharedPtr<FJsonObject> Json;
+    if (FJsonSerializer::Deserialize(TJsonReaderFactory<>::Create(Body), Json) && Json.IsValid())
+    {
+        Json->TryGetStringField(TEXT("code"), E.Code);
+        Json->TryGetStringField(TEXT("error"), E.Message);
+    }
+    if (E.Message.IsEmpty())
+    {
+        const FString Trimmed = Body.TrimStartAndEnd();
+        E.Message = !Trimmed.IsEmpty() && !Trimmed.StartsWith(TEXT("<")) && Trimmed.Len() <= MaxErrorBodyChars
+            ? Trimmed
+            : FString::Printf(TEXT("Request failed with status %d."), E.Status);
+    }
+    return E;
 }
 
 FNeocortexRequestHandle UNeocortexHttpClient::PostJson(const FString& Path,
                                                        const FString& JsonBody,
                                                        const TCHAR* Accept,
+                                                       const FNeocortexRequestOptions& Options,
                                                        FNeocortexHttpRawDelegate Callback)
 {
     FNeocortexRequestHandle Handle;
 
     const FString Url = BaseUrl / Path;
-    const FString ApiKey = Opts.ApiKey;
+    const FString Key = ApiKey;
     const FString AcceptStr = Accept ? FString(Accept) : FString();
-    const float Timeout = Opts.TimeoutSeconds;
+    const float Timeout = Options.TimeoutSeconds;
 
-    UE_LOG(LogNeocortex, Log, TEXT("POST %s body=%s"), *Url, *JsonBody);
+    UE_LOG(LogNeocortex, Verbose, TEXT("POST %s body=%s"), *Url, *JsonBody);
 
-    FRequestFactory Factory = [Url, JsonBody, ApiKey, AcceptStr, Timeout]()
+    FRequestFactory Factory = [Url, JsonBody, Key, AcceptStr, Timeout]()
     {
         TSharedRef<IHttpRequest, ESPMode::ThreadSafe> Req = FHttpModule::Get().CreateRequest();
         Req->SetURL(Url);
         Req->SetVerb(TEXT("POST"));
         Req->SetHeader(TEXT("Content-Type"), TEXT("application/json"));
         if (!AcceptStr.IsEmpty()) Req->SetHeader(TEXT("Accept"), *AcceptStr);
-        if (!ApiKey.IsEmpty()) Req->SetHeader(TEXT("x-api-key"), ApiKey);
+        if (!Key.IsEmpty()) Req->SetHeader(TEXT("x-api-key"), Key);
         Req->SetTimeout(Timeout);
         Req->SetContentAsString(JsonBody);
         return Req;
     };
 
-    SendWithRetry(Handle, MoveTemp(Factory), MoveTemp(Callback), 0);
+    Send(Handle, MoveTemp(Factory), Options, MoveTemp(Callback), 0);
+    return Handle;
+}
+
+FNeocortexRequestHandle UNeocortexHttpClient::GetJson(const FString& Path,
+                                                      const TCHAR* Accept,
+                                                      const FNeocortexRequestOptions& Options,
+                                                      FNeocortexHttpRawDelegate Callback)
+{
+    FNeocortexRequestHandle Handle;
+
+    const FString Url = BaseUrl / Path;
+    const FString Key = ApiKey;
+    const FString AcceptStr = Accept ? FString(Accept) : FString();
+    const float Timeout = Options.TimeoutSeconds;
+
+    UE_LOG(LogNeocortex, Verbose, TEXT("GET %s"), *Url);
+
+    FRequestFactory Factory = [Url, Key, AcceptStr, Timeout]()
+    {
+        TSharedRef<IHttpRequest, ESPMode::ThreadSafe> Req = FHttpModule::Get().CreateRequest();
+        Req->SetURL(Url);
+        Req->SetVerb(TEXT("GET"));
+        if (!AcceptStr.IsEmpty()) Req->SetHeader(TEXT("Accept"), *AcceptStr);
+        if (!Key.IsEmpty()) Req->SetHeader(TEXT("x-api-key"), Key);
+        Req->SetTimeout(Timeout);
+        return Req;
+    };
+
+    Send(Handle, MoveTemp(Factory), Options, MoveTemp(Callback), 0);
     return Handle;
 }
 
@@ -51,6 +125,7 @@ FNeocortexRequestHandle UNeocortexHttpClient::PostMultipart(const FString& Path,
                                                             const FString& MimeType,
                                                             const TArray<uint8>& Bytes,
                                                             const TCHAR* Accept,
+                                                            const FNeocortexRequestOptions& Options,
                                                             FNeocortexHttpRawDelegate Callback)
 {
     FNeocortexRequestHandle Handle;
@@ -82,85 +157,143 @@ FNeocortexRequestHandle UNeocortexHttpClient::PostMultipart(const FString& Path,
     AddLine(TEXT("--") + Boundary + TEXT("--"));
 
     const FString Url = BaseUrl / Path;
-    const FString ApiKey = Opts.ApiKey;
+    const FString Key = ApiKey;
     const FString AcceptStr = Accept ? FString(Accept) : FString();
-    const float Timeout = Opts.TimeoutSeconds;
+    const float Timeout = Options.TimeoutSeconds;
 
-    FRequestFactory Factory = [Url, Body, ContentType, ApiKey, AcceptStr, Timeout]()
+    FRequestFactory Factory = [Url, Body, ContentType, Key, AcceptStr, Timeout]()
     {
         TSharedRef<IHttpRequest, ESPMode::ThreadSafe> Req = FHttpModule::Get().CreateRequest();
         Req->SetURL(Url);
         Req->SetVerb(TEXT("POST"));
         Req->SetHeader(TEXT("Content-Type"), ContentType);
         if (!AcceptStr.IsEmpty()) Req->SetHeader(TEXT("Accept"), *AcceptStr);
-        if (!ApiKey.IsEmpty()) Req->SetHeader(TEXT("x-api-key"), ApiKey);
+        if (!Key.IsEmpty()) Req->SetHeader(TEXT("x-api-key"), Key);
         Req->SetTimeout(Timeout);
         Req->SetContent(Body);
         return Req;
     };
 
-    SendWithRetry(Handle, MoveTemp(Factory), MoveTemp(Callback), 0);
+    Send(Handle, MoveTemp(Factory), Options, MoveTemp(Callback), 0);
     return Handle;
 }
 
-void UNeocortexHttpClient::SendWithRetry(const FNeocortexRequestHandle& Handle,
-                                          FRequestFactory Factory,
-                                          FNeocortexHttpRawDelegate Callback,
-                                          int32 Attempt)
+void UNeocortexHttpClient::Send(const FNeocortexRequestHandle& Handle,
+                                FRequestFactory Factory,
+                                FNeocortexRequestOptions Options,
+                                FNeocortexHttpRawDelegate Callback,
+                                int32 Attempt)
 {
+    // A retry that was cancelled while it waited is no longer pending.
+    const bool bRetryCancelled = Attempt > 0 && PendingRetries.Remove(Handle.Id) == 0;
+    if (bRetryCancelled || (Options.Token.IsValid() && Options.Token->bCancelled))
+    {
+        Forget(Handle, Options.Token);
+        return;
+    }
+
     TSharedRef<IHttpRequest, ESPMode::ThreadSafe> Req = Factory();
     InFlight.Add(Handle.Id, Req);
+    if (Options.Token.IsValid()) Options.Token->InFlight.AddUnique(Handle.Id);
 
+    const double StartTime = FPlatformTime::Seconds();
     TWeakObjectPtr<UNeocortexHttpClient> WeakThis(this);
     Req->OnProcessRequestComplete().BindLambda(
-        [WeakThis, Handle, Callback, Factory, Attempt](
-            TSharedPtr<IHttpRequest, ESPMode::ThreadSafe>,
-            FHttpResponsePtr Resp, bool bOK)
+        [WeakThis, Handle, Callback, Factory, Options, Attempt, StartTime](
+            FHttpRequestPtr Request, FHttpResponsePtr Resp, bool bOK)
         {
             if (!WeakThis.IsValid()) return;
-            WeakThis->InFlight.Remove(Handle.Id);
+            UNeocortexHttpClient* Self = WeakThis.Get();
+
+            // A cancelled request is not a failure worth reporting.
+            const bool bWasTracked = Self->InFlight.Remove(Handle.Id) > 0;
+            if (!bWasTracked || (Options.Token.IsValid() && Options.Token->bCancelled))
+            {
+                Self->Forget(Handle, Options.Token);
+                return;
+            }
 
             const int32 Code = Resp.IsValid() ? Resp->GetResponseCode() : 0;
-            const bool bRetryable = !bOK || !Resp.IsValid() || Code >= 500;
-            if (bRetryable && Attempt < WeakThis->Opts.MaxRetries)
+            if (bOK && Resp.IsValid() && EHttpResponseCodes::IsOk(Code))
             {
-                const float Delay = WeakThis->Opts.RetryBackoffSeconds * (Attempt + 1);
-                AsyncTask(ENamedThreads::GameThread, [WeakThis, Handle, Callback, Factory, Attempt, Delay]()
+                Self->Forget(Handle, Options.Token);
+                const FString Raw = Resp->GetContentAsString();
+                // HTTP callbacks are normally on the game thread, but not on every platform.
+                AsyncTask(ENamedThreads::GameThread, [Callback, Raw, Resp]()
                 {
-                    if (!WeakThis.IsValid()) return;
-                    UWorld* W = GEngine->GetCurrentPlayWorld();
-                    if (!W)
-                    {
-                        // No world during level transition — fail rather than silently drop the retry
-                        Callback.ExecuteIfBound(FString(), nullptr);
-                        return;
-                    }
-                    FTimerHandle Timer;
-                    W->GetTimerManager().SetTimer(Timer, [WeakThis, Handle, Callback, Factory, Attempt]()
-                    {
-                        if (!WeakThis.IsValid()) return;
-                        WeakThis->SendWithRetry(Handle, Factory, Callback, Attempt + 1);
-                    }, Delay, false);
+                    Callback.ExecuteIfBound(Raw, Resp, nullptr);
                 });
                 return;
             }
 
-            const FString Raw = Resp.IsValid() ? Resp->GetContentAsString() : FString();
-            // Dispatch on game thread: HTTP callbacks are normally game-thread, but not guaranteed on all platforms.
-            AsyncTask(ENamedThreads::GameThread, [Callback, Raw, Resp]()
+            const bool bTimedOut = !Resp.IsValid()
+                && FPlatformTime::Seconds() - StartTime >= Options.TimeoutSeconds - 0.5;
+            const FString Url = Request.IsValid() ? Request->GetURL() : FString();
+            const FNeocortexRequestError Error = MakeError(Resp, bTimedOut, Url);
+
+            if (Error.IsRetryable() && Attempt < Options.Retries)
             {
-                Callback.ExecuteIfBound(Raw, Resp);
+                UE_LOG(LogNeocortex, Warning, TEXT("%s (%s), retrying."), *Error.Message, *Url);
+                Self->PendingRetries.Add(Handle.Id);
+                // Waiting on the core ticker works with or without a world (level transitions, editor).
+                FTSTicker::GetCoreTicker().AddTicker(FTickerDelegate::CreateLambda(
+                    [WeakThis, Handle, Callback, Factory, Options, Attempt](float)
+                    {
+                        if (WeakThis.IsValid()) WeakThis->Send(Handle, Factory, Options, Callback, Attempt + 1);
+                        return false;
+                    }), RetryDelaySeconds);
+                return;
+            }
+
+            Self->Forget(Handle, Options.Token);
+            if (!Options.HandledCodes.Contains(Error.Code))
+            {
+                UE_LOG(LogNeocortex, Error, TEXT("%s%s (%s)"), *Error.Message,
+                    Error.Code.IsEmpty() ? TEXT("") : *FString::Printf(TEXT(" [%s]"), *Error.Code), *Url);
+            }
+            const FString Raw = Resp.IsValid() ? Resp->GetContentAsString() : FString();
+            AsyncTask(ENamedThreads::GameThread, [Callback, Raw, Resp, Error]()
+            {
+                Callback.ExecuteIfBound(Raw, Resp, &Error);
             });
         });
 
     Req->ProcessRequest();
 }
 
+void UNeocortexHttpClient::Forget(const FNeocortexRequestHandle& Handle, const FNeocortexCancelTokenPtr& Token)
+{
+    if (Token.IsValid()) Token->InFlight.Remove(Handle.Id);
+}
+
 void UNeocortexHttpClient::Cancel(const FNeocortexRequestHandle& Handle)
 {
     if (TSharedRef<IHttpRequest, ESPMode::ThreadSafe>* Req = InFlight.Find(Handle.Id))
     {
-        (*Req)->CancelRequest();
+        TSharedRef<IHttpRequest, ESPMode::ThreadSafe> Request = *Req;
         InFlight.Remove(Handle.Id);
+        Request->CancelRequest();
+    }
+    else
+    {
+        PendingRetries.Remove(Handle.Id);
+    }
+}
+
+void UNeocortexHttpClient::Cancel(const FNeocortexCancelTokenPtr& Token)
+{
+    if (!Token.IsValid()) return;
+    Token->bCancelled = true;
+    const TArray<FGuid> Ids = Token->InFlight;
+    Token->InFlight.Reset();
+    for (const FGuid& Id : Ids)
+    {
+        PendingRetries.Remove(Id);
+        if (TSharedRef<IHttpRequest, ESPMode::ThreadSafe>* Req = InFlight.Find(Id))
+        {
+            TSharedRef<IHttpRequest, ESPMode::ThreadSafe> Request = *Req;
+            InFlight.Remove(Id);
+            Request->CancelRequest();
+        }
     }
 }

@@ -1,5 +1,6 @@
 ﻿#include "UI/NeocortexChatMessageWidget.h"
 #include "Components/HorizontalBoxSlot.h"
+#include "Misc/EngineVersionComparison.h"
 
 void UNeocortexChatMessageWidget::NativeConstruct()
 {
@@ -11,8 +12,22 @@ void UNeocortexChatMessageWidget::SetMessage(const FString& Text, bool bIsUser, 
 	if (!MessageText || !Background || !LayoutBox || !LeftPadding || !RightPadding)
 		return;
 
-	const FString FinalText = bIsLTR ? Text : CorrectRTL(Text);
-	MessageText->SetText(FText::FromString(FinalText));
+	const bool bRTL = !bIsLTR;
+
+	// Let Unreal's text shaping (HarfBuzz) and bidi handle Arabic/Hebrew joining and ordering; set
+	// the flow-direction preference and justification instead of manually reversing the string.
+	MessageText->SetText(FText::FromString(Text));
+	const EFlowDirectionPreference Flow = bRTL ? EFlowDirectionPreference::RightToLeft : EFlowDirectionPreference::LeftToRight;
+#if UE_VERSION_OLDER_THAN(5, 1, 0)
+	MessageText->FlowDirectionPreference = Flow;
+	if (const TSharedPtr<SWidget> Cached = MessageText->GetCachedWidget())
+	{
+		Cached->SetFlowDirectionPreference(Flow);
+	}
+#else
+	MessageText->SetFlowDirectionPreference(Flow);
+#endif
+	MessageText->SetJustification(bRTL ? ETextJustify::Right : ETextJustify::Left);
 	MessageText->SetColorAndOpacity(bIsUser ? FSlateColor(FLinearColor::White) : FSlateColor(FLinearColor::Black));
 
 	Background->SetBrushColor(bIsUser ? UserMessageColor : AgentMessageColor);
@@ -31,12 +46,10 @@ void UNeocortexChatMessageWidget::SetMessage(const FString& Text, bool bIsUser, 
 	RightPadding->SetVisibility(!bAlignRight ? ESlateVisibility::Visible : ESlateVisibility::Collapsed);
 }
 
-FString UNeocortexChatMessageWidget::CorrectRTL(const FString& Input) const
+void UNeocortexChatMessageWidget::SetFontOverride(const FSlateFontInfo& Font)
 {
-	FString Reversed;
-	for (int32 i = Input.Len() - 1; i >= 0; --i)
+	if (MessageText)
 	{
-		Reversed.AppendChar(Input[i]);
+		MessageText->SetFont(Font);
 	}
-	return Reversed;
 }

@@ -39,7 +39,7 @@ void UNeocortexAudioChatInputWidget::NativeTick(const FGeometry& MyGeometry, flo
 
     if (!AmplitudeBar || !Recorder || !Recorder->IsRecording()) return;
 
-    // Scale amplitude for visibility (matches Unity's x5 multiplier), clamped to 0–1.
+    // Scale amplitude x5 for visibility, clamped to 0 to 1.
     const float Amp = FMath::Clamp(Recorder->GetAmplitude() * 5.f, 0.f, 1.f);
     AmplitudeBar->SetPercent(Amp);
 }
@@ -62,7 +62,7 @@ void UNeocortexAudioChatInputWidget::StartRecording()
 void UNeocortexAudioChatInputWidget::StopRecording()
 {
     if (!Recorder || !IsRecording()) return;
-    // bAutoTranscribe=false — we handle forwarding ourselves in HandleWavReady.
+    // bAutoTranscribe=false: HandleWavReady forwards the recording instead.
     Recorder->StopRecording(false);
 }
 

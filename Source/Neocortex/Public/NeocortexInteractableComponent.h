@@ -16,11 +16,19 @@ class NEOCORTEX_API UNeocortexInteractableComponent : public UActorComponent
 public:
 	UNeocortexInteractableComponent();
 	
-	/** Type classification of this interactable (e.g., "Character", "Object", "Item"). */
+	/** Stable id actions refer to (FNeocortexChatAction::TargetId). Leave empty to derive one from the actor. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Neocortex")
+	FString Id;
+
+	/** Set when this actor IS a Neocortex character. Leave empty to use the Smart Agent on the same actor, if any. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Neocortex")
+	FString CharacterId;
+
+	/** Type classification of this interactable ("CHARACTER" or "OBJECT"). Leave empty to derive it. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Neocortex")
 	FString Type; 
 	
-	/** Display name of this interactable. */
+	/** What the character calls this thing. Leave empty to use the actor's name. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Neocortex")
 	FString Name;
 	
@@ -28,9 +36,17 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Neocortex")
 	bool IsSubject = false;
 	
-	/** Custom properties providing additional context about this interactable. */
+	/** What this thing is and its state (e.g. Color: Red, State: Open). */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Neocortex")
 	TArray<FNeocortexInteractableProperty> Properties;
+
+	/** The id actions use: Id when set, else "<actor-name>-<hash of the actor path>". */
+	UFUNCTION(BlueprintPure, Category = "Neocortex")
+	FString GetId() const;
+
+	/** The character id this interactable represents, or empty for an object. */
+	UFUNCTION(BlueprintPure, Category = "Neocortex")
+	FString GetCharacterId() const;
 	
 	/**
 	 * Converts this component's data to a serializable interactable structure.

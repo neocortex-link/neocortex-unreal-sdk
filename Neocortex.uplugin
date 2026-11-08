@@ -1,7 +1,7 @@
 {
 	"FileVersion": 3,
-	"Version": 1,
-	"VersionName": "0.3.0",
+	"Version": 2,
+	"VersionName": "0.4.0",
 	"FriendlyName": "Neocortex Unreal Engine SDK",
 	"Description": " Neocortex Unreal Engine SDK for Smart NPCs and Virtual Assistants ",
 	"Category": "Other",
@@ -19,6 +19,22 @@
 			"Name": "Neocortex",
 			"Type": "Runtime",
 			"LoadingPhase": "Default"
+		},
+		{
+			"Name": "NeocortexEditor",
+			"Type": "Editor",
+			"LoadingPhase": "PostEngineInit"
+		}
+	],
+	"Plugins": [
+		{
+			"Name": "AudioCapture",
+			"Enabled": true
+		},
+		{
+			"Name": "AndroidPermission",
+			"Enabled": true,
+			"PlatformAllowList": [ "Android" ]
 		}
 	]
 }

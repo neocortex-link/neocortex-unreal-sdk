@@ -2,10 +2,14 @@
 #include "CoreMinimal.h"
 #include "Interfaces/IHttpRequest.h"
 #include "Interfaces/IHttpResponse.h"
+#include "NeocortexTypes.h"
 #include "NeocortexHttpClient.generated.h"
 
-/** Delegate fired when an HTTP request completes with raw response data. */
-DECLARE_DELEGATE_TwoParams(FNeocortexHttpRawDelegate, const FString& /*Body*/, const FHttpResponsePtr& /*Resp*/);
+/**
+ * Delegate fired when an HTTP request completes. Error is null on success (a 2xx answer) and
+ * describes the failure otherwise. It is not fired for a cancelled request.
+ */
+DECLARE_DELEGATE_ThreeParams(FNeocortexHttpRawDelegate, const FString& /*Body*/, const FHttpResponsePtr& /*Resp*/, const FNeocortexRequestError* /*Error*/);
 
 /** Handle for tracking and canceling in-flight HTTP requests. */
 USTRUCT()
@@ -17,58 +21,73 @@ struct FNeocortexRequestHandle
     bool IsValid() const { return Id.IsValid(); }
 };
 
-/** Configuration options for HTTP client behavior. */
-USTRUCT()
-struct FNeocortexHttpOptions
+/**
+ * Groups the requests of one operation (a transcription, the chat turn after it, the speech
+ * after that) so they can be cancelled together. Once cancelled, nothing in the group calls
+ * back and no further step is sent.
+ */
+struct NEOCORTEX_API FNeocortexCancelToken
 {
-    GENERATED_BODY()
-    int32 TimeoutSeconds = 30;
-    int32 MaxRetries = 2;
-    float RetryBackoffSeconds = 0.5f;
-    FString ApiKey;
+    bool IsCancelled() const { return bCancelled; }
+
+private:
+    friend class UNeocortexHttpClient;
+    bool bCancelled = false;
+    TArray<FGuid> InFlight;
+};
+
+using FNeocortexCancelTokenPtr = TSharedPtr<FNeocortexCancelToken, ESPMode::ThreadSafe>;
+
+/** Per request behavior. */
+struct FNeocortexRequestOptions
+{
+    /** Seconds before this side gives up waiting. */
+    float TimeoutSeconds = 30.0f;
+
+    /** How many times a request that failed with a retryable error is sent again. */
+    int32 Retries = 0;
+
+    /** Optional group to cancel this request with. */
+    FNeocortexCancelTokenPtr Token;
+
+    /** API error codes the caller handles itself, so they are not logged as errors. */
+    TArray<FString> HandledCodes;
 };
 
 /**
  * HTTP client for making requests to Neocortex API.
- * Handles JSON and multipart requests with automatic retry logic and request tracking.
+ * Handles JSON and multipart requests with retry logic, timeouts and request tracking.
  */
 UCLASS()
 class NEOCORTEX_API UNeocortexHttpClient : public UObject
 {
     GENERATED_BODY()
 public:
-    /**
-     * Initializes the client with base URL and options.
-     * @param InBaseUrl Base URL for all API requests
-     * @param HttpOptions Configuration options for the client
-     */
-    void Init(const FString& InBaseUrl, const FNeocortexHttpOptions& HttpOptions);
+    /** Seconds between two attempts of a retried request. */
+    static constexpr float RetryDelaySeconds = 1.5f;
+
+    static FString BaseUrlOverride;
 
     /**
-     * Sends a JSON POST request.
-     * @param Path API endpoint path (relative to base URL)
-     * @param JsonBody JSON payload as string
-     * @param Accept Expected response content type
-     * @param Callback Delegate called when request completes
-     * @return Handle for tracking or canceling the request
+     * Initializes the client with its base URL.
+     * @param InBaseUrl Base URL for all API requests
      */
+    void Init(const FString& InBaseUrl);
+
+    /** Sends a JSON POST request. */
     FNeocortexRequestHandle PostJson(const FString& Path,
                                const FString& JsonBody,
                                const TCHAR* Accept,
+                               const FNeocortexRequestOptions& Options,
                                FNeocortexHttpRawDelegate Callback);
 
-    /**
-     * Sends a multipart/form-data POST request with file upload.
-     * @param Path API endpoint path
-     * @param Fields Form fields to include
-     * @param FileField Name of the file field
-     * @param FileName Name of the uploaded file
-     * @param MimeType MIME type of the file
-     * @param Bytes File data as byte array
-     * @param Accept Expected response content type
-     * @param Callback Delegate called when request completes
-     * @return Handle for tracking or canceling the request
-     */
+    /** Sends a GET request. Path may already contain a "?query" string. */
+    FNeocortexRequestHandle GetJson(const FString& Path,
+                              const TCHAR* Accept,
+                              const FNeocortexRequestOptions& Options,
+                              FNeocortexHttpRawDelegate Callback);
+
+    /** Sends a multipart/form-data POST request with one file upload. */
     FNeocortexRequestHandle PostMultipart(const FString& Path,
                                     const TMap<FString,FString>& Fields,
                                     const FString& FileField,
@@ -76,32 +95,50 @@ public:
                                     const FString& MimeType,
                                     const TArray<uint8>& Bytes,
                                     const TCHAR* Accept,
+                                    const FNeocortexRequestOptions& Options,
                                     FNeocortexHttpRawDelegate Callback);
-    /**
-     * Cancels an in-flight HTTP request.
-     * @param Handle Handle returned from PostJson or PostMultipart
-     */
+
+    /** Cancels an in-flight HTTP request. Its callback is not fired. */
     void Cancel(const FNeocortexRequestHandle& Handle);
 
+    /** Cancels every request in the token's group, now and later. */
+    void Cancel(const FNeocortexCancelTokenPtr& Token);
+
     /** Updates the API key used for subsequent requests. Existing in-flight requests are unaffected. */
-    void SetApiKey(const FString& NewKey) { Opts.ApiKey = NewKey; }
+    void SetApiKey(const FString& NewKey) { ApiKey = NewKey; }
+
+    /** The base URL requests go to, without a trailing slash. */
+    const FString& GetBaseUrl() const { return BaseUrl; }
+
+    /** Builds the classified error for a failed or missing response. */
+    static FNeocortexRequestError MakeError(const FHttpResponsePtr& Resp, bool bTimedOut, const FString& Url);
+
+    /** Builds the classified error for an answer with this status and body. Status 0: no answer. */
+    static FNeocortexRequestError MakeError(int32 Status, const FString& Body, bool bTimedOut, const FString& Url);
+
+    /** The API key requests are sent with. */
+    const FString& GetApiKey() const { return ApiKey; }
 
 private:
-    /** Base URL for all API requests. */
-    FString BaseUrl = TEXT("https://api.neocortex.link/v2");
-    
-    /** HTTP client configuration options. */
-    FNeocortexHttpOptions Opts;
-    
-    /** Map of active requests tracked by GUID. */
+    FString BaseUrl = TEXT("https://api.neocortex.link/v3");
+
+    FString ApiKey;
+
+    /** Active requests, tracked by handle id. */
     TMap<FGuid, TSharedRef<IHttpRequest, ESPMode::ThreadSafe>> InFlight;
+
+    /** Handles waiting for a retry to be sent. Cancelling one removes it. */
+    TSet<FGuid> PendingRetries;
 
     using FRequestFactory = TFunction<TSharedRef<IHttpRequest, ESPMode::ThreadSafe>()>;
 
-    // Creates a fresh request via Factory, sends it, and retries on failure.
-    // Each retry calls Factory again so a new request object is used.
-    void SendWithRetry(const FNeocortexRequestHandle& Handle,
-                       FRequestFactory Factory,
-                       FNeocortexHttpRawDelegate Callback,
-                       int32 Attempt);
+    // Creates a fresh request via Factory and sends it. A retry calls Factory again, so each
+    // attempt uses a new request object.
+    void Send(const FNeocortexRequestHandle& Handle,
+              FRequestFactory Factory,
+              FNeocortexRequestOptions Options,
+              FNeocortexHttpRawDelegate Callback,
+              int32 Attempt);
+
+    void Forget(const FNeocortexRequestHandle& Handle, const FNeocortexCancelTokenPtr& Token);
 };

@@ -3,9 +3,9 @@
 #include "CoreMinimal.h"
 #include "Blueprint/UserWidget.h"
 #include "Enums/NeocortexEnumTypes.h"
+#include "NeocortexTypes.h"
 #include "NeocortexChatPanelWidget.generated.h"
 
-struct FNeocortexChatMessage;
 class UNeocortexChatMessageWidget;
 
 /**
@@ -32,7 +32,7 @@ public:
   * @param Messages Array of chat messages to display
   */
  UFUNCTION(BlueprintCallable, Category = "Neocortex/Chat")
- void AddChatHistory(const TArray<FNeocortexChatMessage>& Messages);
+ void AddChatHistory(const TArray<FNeocortexChatHistoryEntry>& Messages);
 
  /** Removes all messages from the chat panel. */
  UFUNCTION(BlueprintCallable, Category = "Neocortex/Chat")
@@ -49,6 +49,14 @@ public:
  /** Text rendering direction for localization support (LTR/RTL). */
  UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Neocortex/Chat")
  EWritingDirection WritingDirection = EWritingDirection::LeftToRight;
+
+ /** When true, MessageFontOverride is applied to every message. */
+ UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Neocortex/Chat")
+ bool bOverrideMessageFont = false;
+
+ /** Font applied to each message when bOverrideMessageFont is true. */
+ UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Neocortex/Chat", meta = (EditCondition = "bOverrideMessageFont"))
+ FSlateFontInfo MessageFontOverride;
 
 protected:
  /** Scrollable container for displaying chat messages. */
@@ -73,7 +81,7 @@ protected:
  virtual void NativeConstruct() override;
 
 private:
- /** Appends a message widget without touching the writing indicator — used by AddChatHistory. */
+ /** Appends a message widget without touching the writing indicator; used by AddChatHistory. */
  void AppendMessage(const FString& Text, bool bIsUser);
 
  /** Scrolls the chat view to show the most recent message. */
