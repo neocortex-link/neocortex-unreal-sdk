@@ -11,7 +11,7 @@ DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnAudioRecordingStarted);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnAudioRecordingComplete, const TArray<uint8>&, WavData);
 
 /**
- * Audio chat input widget — drives a UNeocortexMicrophoneRecorderComponent and optionally
+ * Audio chat input widget. Drives a UNeocortexMicrophoneRecorderComponent and optionally
  * forwards the recording to a UNeocortexSmartAgent for the full voice-in / voice-out flow.
  *
  * Setup in Blueprint:
@@ -29,7 +29,7 @@ class NEOCORTEX_API UNeocortexAudioChatInputWidget : public UUserWidget
     GENERATED_BODY()
 
 public:
-    /** Microphone recorder component — must be assigned before recording. */
+    /** Microphone recorder component; must be assigned before recording. */
     UPROPERTY(BlueprintReadWrite, Category="Neocortex")
     TObjectPtr<UNeocortexMicrophoneRecorderComponent> Recorder;
 
@@ -42,15 +42,15 @@ public:
     bool bAutoSendOnStop = true;
 
     /**
-     * Push-to-talk mode: bind a RecordButton widget — press starts recording, release stops it.
+     * Push-to-talk mode: bind a RecordButton widget: press starts recording, release stops it.
      * When false, call StartRecording / StopRecording manually.
      */
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Neocortex")
     bool bPushToTalk = false;
 
-    // Optional child widgets — add these to your Blueprint layout as needed.
+    // Optional child widgets; add these to your Blueprint layout as needed.
 
-    /** Progress bar driven by microphone amplitude (0–1 scaled). BindWidgetOptional. */
+    /** Progress bar driven by microphone amplitude (0 to 1, scaled). BindWidgetOptional. */
     UPROPERTY(BlueprintReadOnly, meta=(BindWidgetOptional))
     TObjectPtr<UProgressBar> AmplitudeBar;
 

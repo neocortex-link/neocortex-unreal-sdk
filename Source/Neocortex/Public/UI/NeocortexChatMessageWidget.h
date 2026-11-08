@@ -26,6 +26,10 @@ public:
  UFUNCTION(BlueprintCallable, Category = "Chat")
  void SetMessage(const FString& Text, bool bIsUser, bool bIsLTR = false);
 
+ /** Overrides the message font. */
+ UFUNCTION(BlueprintCallable, Category = "Chat")
+ void SetFontOverride(const FSlateFontInfo& Font);
+
 protected:
  /** Text block displaying the message content */
  UPROPERTY(meta = (BindWidget))
@@ -55,11 +59,4 @@ private:
 
  /** Background color for agent messages (gray tone) */
  const FLinearColor AgentMessageColor = FLinearColor(0.8f, 0.8f, 0.8f, 1.0f);
-
- /**
-  * Corrects text rendering for right-to-left languages.
-  * @param Input The original text string
-  * @return Text with proper RTL formatting applied
-  */
- FString CorrectRTL(const FString& Input) const;
 };

@@ -74,7 +74,7 @@ public:
     /** Returns true if currently capturing audio. */
     bool IsRecording() const { return bIsRecording; }
 
-    /** Returns the RMS amplitude of the most recent audio chunk (0–1). Updated each Tick. */
+    /** Returns the RMS amplitude of the most recent audio chunk (0 to 1). Updated each Tick. */
     float GetAmplitude() const { return Amplitude; }
 
     /** Returns the configured sample rate in Hz. */
@@ -99,7 +99,7 @@ private:
     /** Device name to try first; empty means auto-select the first working device. */
     FString PreferredDeviceName;
 
-    /** RMS amplitude of the most recent captured chunk (0–1). */
+    /** RMS amplitude of the most recent captured chunk (0 to 1). */
     float Amplitude = 0.f;
 
     /** Target sample rate in Hz. */

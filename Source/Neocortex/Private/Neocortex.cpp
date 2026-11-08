@@ -4,7 +4,7 @@
 
 DEFINE_LOG_CATEGORY(LogNeocortex)
 
-#define LOCTEXT_NAMESPACE "FNeoCortexModule"
+#define LOCTEXT_NAMESPACE "FNeocortexModule"
 
 void FNeocortexModule::StartupModule()
 {

@@ -68,8 +68,21 @@ public:
 	 */
 	FString CreateInteractablesMetadataInRadius(const FVector& Location, float Radius) const;
 
+	/**
+	 * Builds what a character perceives: interactables nearest first, capped at MaxEntities,
+	 * plus the character itself when no interactable represents it.
+	 * @param Origin Where the character stands
+	 * @param Radius Only interactables within this many world units; 0 for unlimited
+	 * @param MaxEntities Ceiling on how many interactables one turn carries
+	 * @param SelfCharacterId The speaking character's id; empty to leave the character out
+	 * @param SelfName What the character is called when it is added for itself
+	 * @return JSON array string, or empty when there is nothing to perceive
+	 */
+	FString CreatePerceptionMetadata(const FVector& Origin, float Radius, int32 MaxEntities,
+		const FString& SelfCharacterId, const FString& SelfName) const;
+
 	// -------------------------------------------------------------------------
-	// Event log — per-GameInstance storage used by UNeocortexEventLogger.
+	// Event log: per-GameInstance storage used by UNeocortexEventLogger.
 	// -------------------------------------------------------------------------
 
 	/** Records a game event. Truncated to 64 chars. Dropped when log is full (20 entries). */
@@ -101,10 +114,10 @@ private:
 	UPROPERTY()
 	TArray<class UNeocortexInteractableComponent*> RegisteredInteractables;
 
-	/** Serializes a filtered list of interactables to a compact JSON array string. */
-	static FString SerializeInteractables(const TArray<class UNeocortexInteractableComponent*>& Components);
+	/** Serializes interactables to a compact JSON array string, or empty when there are none. */
+	static FString SerializeInteractables(const TArray<FNeocortexInteractable>& Entities);
 
-	// Event log storage — access via PushEvent / ClearEvents / ConsumeLogsJson.
+	// Event log storage, accessed via PushEvent / ClearEvents / ConsumeLogsJson.
 	struct FEventEntry { ENeocortexEventPriority Priority; FString Date; FString Content; };
 	mutable FCriticalSection EventMutex;
 	TArray<FEventEntry> EventLog;

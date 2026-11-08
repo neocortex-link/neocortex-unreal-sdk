@@ -67,6 +67,22 @@ static TSharedPtr<IVoiceCapture> CreateWorkingVoiceCapture(int32& SampleRate, in
         UE_LOG(LogNeocortex, Warning, TEXT("Preferred mic device '%s' unavailable, falling back"), *PreferredDeviceName);
     }
 
+    // The system's default microphone, which is the one the player chose in the OS. Enumerated
+    // devices come second: the first one that opens can be a virtual device that records silence.
+    {
+        Audio::FCaptureDeviceInfo DefaultInfo;
+        Audio::FAudioCapture DefaultCapture;
+        const int32 DefaultRate = DefaultCapture.GetCaptureDeviceInfo(DefaultInfo)
+            ? SanitizeSampleRate(DefaultInfo.PreferredSampleRate) : SampleRate;
+        TSharedPtr<IVoiceCapture> VC = FVoiceModule::Get().CreateVoiceCapture(TEXT(""), DefaultRate, 1);
+        if (VC.IsValid())
+        {
+            SampleRate = DefaultRate;
+            UE_LOG(LogNeocortex, Log, TEXT("Using the default mic device (%s) at %d Hz"), *DefaultInfo.DeviceName, DefaultRate);
+            return VC;
+        }
+    }
+
     // Fall back: iterate all devices and take the first working one.
     TArray<Audio::FCaptureDeviceInfo> Devices;
     Audio::FAudioCapture Capture;
@@ -81,12 +97,6 @@ static TSharedPtr<IVoiceCapture> CreateWorkingVoiceCapture(int32& SampleRate, in
             UE_LOG(LogNeocortex, Log, TEXT("Using mic device: %s at %d Hz"), *Info.DeviceName, DeviceRate);
             return VC;
         }
-    }
-
-    TSharedPtr<IVoiceCapture> DefaultVC = FVoiceModule::Get().CreateVoiceCapture(TEXT(""), SampleRate, 1);
-    if (DefaultVC.IsValid())
-    {
-        return DefaultVC;
     }
 
     return nullptr;
@@ -225,7 +235,14 @@ bool FNeocortexMicrophoneRecorder::StartRecording()
         VoiceCapture = CreateWorkingVoiceCapture(SampleRate, NumChannels, PreferredDeviceName);
         if (!VoiceCapture.IsValid())
         {
-            UE_LOG(LogNeocortex, Error, TEXT("Failed to create VoiceCapture device"));
+            if (!FVoiceModule::Get().IsVoiceEnabled())
+            {
+                UE_LOG(LogNeocortex, Error, TEXT("Voice capture is turned off in this project. Add [Voice] bEnabled=True to Config/DefaultEngine.ini and restart the editor."));
+            }
+            else
+            {
+                UE_LOG(LogNeocortex, Error, TEXT("No microphone could be opened. Check that one is connected and that the OS allows this app to use it."));
+            }
             return false;
         }
     }
@@ -234,7 +251,7 @@ bool FNeocortexMicrophoneRecorder::StartRecording()
 
     if (bIsPrewarmed)
     {
-        // Device is already running — just start accumulating. No startup latency.
+        // Device is already running, so just start accumulating. No startup latency.
         bIsRecording = true;
         UE_LOG(LogNeocortex, Log, TEXT("Recording started (prewarmed) at %d Hz mono"), SampleRate);
         return true;
@@ -257,7 +274,7 @@ void FNeocortexMicrophoneRecorder::StopRecording()
     if (!bIsRecording)
         return;
 
-    UE_LOG(LogNeocortex, Log, TEXT("Recording stopped — %d bytes captured"), PcmBuffer.Num());
+    UE_LOG(LogNeocortex, Log, TEXT("Recording stopped, %d bytes captured"), PcmBuffer.Num());
     bIsRecording = false;
     // Keep VoiceCapture running as prewarm so the next StartRecording() is instant.
 }
@@ -334,6 +351,6 @@ TArray<uint8> FNeocortexMicrophoneRecorder::GetWavData16kMono() const
 
 bool FNeocortexMicrophoneRecorder::Supports16kMono() const
 {
-    // Linear interpolation handles any rate, but only flag rates we tested.
+    // Linear interpolation handles any rate, but only 16 kHz and 48 kHz devices are reported as supported.
     return SampleRate == 16000 || SampleRate == 48000;
 }

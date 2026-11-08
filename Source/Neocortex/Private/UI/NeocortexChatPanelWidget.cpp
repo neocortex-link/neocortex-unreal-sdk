@@ -28,6 +28,10 @@ void UNeocortexChatPanelWidget::AppendMessage(const FString& Text, bool bIsUser)
     UNeocortexChatMessageWidget* Message = CreateWidget<UNeocortexChatMessageWidget>(this, MessageItemClass);
     if (!Message) return;
     Message->SetMessage(Text, bIsUser, bIsLTR);
+    if (bOverrideMessageFont)
+    {
+        Message->SetFontOverride(MessageFontOverride);
+    }
     ChatScrollBox->AddChild(Message);
 
     FTimerHandle ScrollTimer;
@@ -44,12 +48,11 @@ void UNeocortexChatPanelWidget::AddMessage(const FString& Text, bool bIsUser)
         HideWritingIndicator();
 }
 
-void UNeocortexChatPanelWidget::AddChatHistory(const TArray<FNeocortexChatMessage>& Messages)
+void UNeocortexChatPanelWidget::AddChatHistory(const TArray<FNeocortexChatHistoryEntry>& Messages)
 {
-    for (const FNeocortexChatMessage& Message : Messages)
+    for (const FNeocortexChatHistoryEntry& Message : Messages)
     {
-        // API returns "user" and "ai" as sender strings (lowercase).
-        AppendMessage(Message.Content, Message.Sender == TEXT("user"));
+        AppendMessage(Message.Content, Message.IsUser());
     }
     HideWritingIndicator();
 }
