@@ -110,6 +110,10 @@ public:
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Neocortex|Actions")
     EActionTrigger ActionTrigger = EActionTrigger::WhenResponseReceived;
 
+    /** Seconds to wait after one action finishes before the next one starts, when a reply carries several. 0 runs them back to back. */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Neocortex|Actions", meta = (ClampMin = "0.0", Units = "s"))
+    float DelayBetweenActions = 0.f;
+
     /** Send what this character perceives (every UNeocortexInteractableComponent in the world) with each message. */
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Neocortex|Interactables")
     bool bIncludeAllInteractables = true;
@@ -363,6 +367,8 @@ private:
     void CaptureActions(const TArray<FNeocortexChatAction>& Actions);
     void RunPendingActions();
     void ProcessNextAction();
+    /** Starts the next action, after DelayBetweenActions when there is one waiting. */
+    void ContinueActions();
 
     using FActionHandler = TFunction<void(const FNeocortexChatAction&, TFunction<void()>)>;
     TMap<FString, FActionHandler> ActionHandlers;
@@ -400,6 +406,7 @@ private:
 
     FTimerHandle LineTimer;
     FTimerHandle SpeakGapTimer;
+    FTimerHandle ActionDelayTimer;
 
     /** True while a conversational request is in flight in Off mode. Prevents concurrent sends. */
     bool bRequestPending = false;

@@ -64,6 +64,7 @@ void UNeocortexSmartAgent::EndPlay(const EEndPlayReason::Type EndPlayReason)
     {
         W->GetTimerManager().ClearTimer(LineTimer);
         W->GetTimerManager().ClearTimer(SpeakGapTimer);
+        W->GetTimerManager().ClearTimer(ActionDelayTimer);
     }
     Super::EndPlay(EndPlayReason);
 }
@@ -924,7 +925,7 @@ void UNeocortexSmartAgent::ProcessNextAction()
         {
             if (*bFinished || !Weak.IsValid()) return;
             *bFinished = true;
-            Weak->ProcessNextAction();
+            Weak->ContinueActions();
         });
         return;
     }
@@ -936,5 +937,20 @@ void UNeocortexSmartAgent::ProcessNextAction()
         UE_LOG(LogNeocortex, Warning, TEXT("%s asked for action '%s', which has no handler. Register one with RegisterAction."),
             *ProjectId, *Action.Name);
     }
-    ProcessNextAction();
+    ContinueActions();
+}
+
+void UNeocortexSmartAgent::ContinueActions()
+{
+    UWorld* W = GetWorld();
+    if (DelayBetweenActions <= 0.f || PendingActions.Num() == 0 || !W)
+    {
+        ProcessNextAction();
+        return;
+    }
+    TWeakObjectPtr<UNeocortexSmartAgent> Weak(this);
+    W->GetTimerManager().SetTimer(ActionDelayTimer, FTimerDelegate::CreateLambda([Weak]()
+    {
+        if (Weak.IsValid()) Weak->ProcessNextAction();
+    }), DelayBetweenActions, false);
 }
