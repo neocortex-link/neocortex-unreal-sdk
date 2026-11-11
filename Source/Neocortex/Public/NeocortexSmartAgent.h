@@ -9,7 +9,6 @@
 class USoundWaveProcedural;
 class UAudioComponent;
 class FNeocortexSpeechJob;
-class FNeocortexChatStream;
 
 /** Fired when a text chat response is received from the agent. */
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnSmartAgentChat, const FNeocortexChatResponseData&, ChatResponseData);
@@ -46,9 +45,6 @@ DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnSmartAgentActionsCompleted);
 
 /** Fired when an action arrives that has no handler registered. It is skipped. */
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnSmartAgentUnhandledAction, const FNeocortexChatAction&, Action);
-
-/** Fired with each piece of text as a streamed reply is written. See UNeocortexSmartAgent::bStreamReplies. */
-DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnSmartAgentTextDelta, const FString&, Text, int32, LineIndex);
 
 /** Blueprint handler for an action keyword. The next action starts when it returns. */
 DECLARE_DYNAMIC_DELEGATE_OneParam(FNeocortexActionHandler, const FNeocortexChatAction&, Action);
@@ -97,14 +93,6 @@ public:
      */
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Neocortex|Chat Lines")
     bool bStreamSpeech = true;
-
-    /**
-     * EXPERIMENTAL: stream the reply itself, so the first line starts while the rest is still
-     * being written. Raises OnTextDelta as text arrives. Falls back to whole replies where
-     * streaming is not available.
-     */
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Neocortex|Chat Lines")
-    bool bStreamReplies = false;
 
     /** When a reply's actions run. The two speech triggers need a mode other than Off; Off runs them on arrival. */
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Neocortex|Actions")
@@ -172,10 +160,6 @@ public:
     /** Fired once the whole reply has finished. Not fired in Off mode. */
     UPROPERTY(BlueprintAssignable, Category = "Neocortex|Chat Lines")
     FOnSmartAgentReplyFinished OnReplyFinished;
-
-    /** Fired with each piece of text while a streamed reply is written (bStreamReplies). */
-    UPROPERTY(BlueprintAssignable, Category = "Neocortex|Chat Lines")
-    FOnSmartAgentTextDelta OnTextDelta;
 
     /** Fired when all actions of a reply have been run. */
     UPROPERTY(BlueprintAssignable, Category = "Neocortex|Actions")
@@ -339,9 +323,8 @@ private:
     void Dispatch(TFunction<void()> Send);
     /** Pulls the next queued input (if any) after a reply finishes or aborts. */
     void DispatchNext();
-    /** Sends a chat turn, streamed when bStreamReplies is on and streaming is available. */
+    /** Sends a chat turn. */
     void SendChat(const FString& Message);
-    void SendStreamedChat(const FString& Message);
     /** Starts playback of a whole reply in the current mode. */
     void PlayReply(const FNeocortexChatResponseData& Response);
     /** Picks how ReplyLines are delivered (credit aware) and starts them. */
@@ -380,21 +363,15 @@ private:
     UPROPERTY()
     USoundWaveProcedural* LastSoundWave = nullptr;
 
-    /** The reply being delivered. More lines may still arrive while bLinesOpen (streamed replies). */
+    /** The reply being delivered. */
     TArray<FNeocortexChatLine> ReplyLines;
     int32 LineIndex = 0;
-    bool bLinesOpen = false;
-    bool bWaitingForLines = false;
     bool bVoicePerLine = false;
-    bool bPlaybackStarted = false;
 
     /** The line being voiced, and the next one, fetched while the current one is heard. */
     TSharedPtr<FNeocortexSpeechJob> CurrentSpeech;
     TSharedPtr<FNeocortexSpeechJob> NextSpeech;
     int32 NextSpeechIndex = INDEX_NONE;
-
-    /** The streamed reply in flight. */
-    TSharedPtr<FNeocortexChatStream> ChatStream;
 
     /** Single clip state: the reply ends once the clip has played and every line has dropped in. */
     bool bSingleClipMode = false;

@@ -138,8 +138,8 @@ A reply is split into lines, each with its own emotion; their text joined is the
 
 The voiced modes check your credits first: a low balance voices the reply with one clip, an empty one shows text only. They play on the agent's **AudioComponent**, or create one on the owner. In every mode but `Off`, input sent while the character is still speaking is queued and sent when the reply ends. Blank, punctuation only and emoji only lines are never sent for speech.
 
-### Streamed speech and streamed replies
-With **Stream Speech** on (the default), speech plays as it is synthesized, so the voice starts sooner, and the next line is fetched while the current one is heard. **Stream Replies** (experimental) streams the reply itself: `OnTextDelta` fires as text is written and the first line starts before the reply is finished. Both work on Windows, Linux and Android and fall back to whole clips and whole replies elsewhere.
+### Streamed speech
+With **Stream Speech** on (the default), speech plays as it is synthesized, so the voice starts sooner, and the next line is fetched while the current one is heard. It works on Windows, Linux and Android and falls back to whole clips elsewhere.
 
 ### Actions
 A reply can trigger several actions, in order. Each `FNeocortexChatAction` has a `Name` (the keyword set on the character) and a `TargetId`, the interactable it applies to.

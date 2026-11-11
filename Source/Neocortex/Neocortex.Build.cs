@@ -40,8 +40,8 @@ public class Neocortex : ModuleRules
 			}
 		}
 
-		// Streamed speech and streamed replies read the response while it arrives, through the
-		// engine's own libcurl. Elsewhere they fall back to whole responses.
+		// Streamed speech reads the response while it arrives, through the engine's own
+		// libcurl. Elsewhere it falls back to whole clips.
 		bool bStreaming = Target.Platform == UnrealTargetPlatform.Win64 ||
 			Target.IsInPlatformGroup(UnrealPlatformGroup.Unix) ||
 			Target.IsInPlatformGroup(UnrealPlatformGroup.Android);

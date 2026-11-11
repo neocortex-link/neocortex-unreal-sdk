@@ -14,7 +14,6 @@ Moves the SDK to the Neocortex API v3 and adds chat lines, group conversations, 
 - **Quizzes** with `UNeocortexQuizAgent` and `UNeocortexQuizUI`: a character hosts a quiz from a question set, for one player or several, with typed answers, tapped choices, hints, passes, scores, and `Resync` after a lost turn.
 - **Actions with targets**: several actions per reply, each with a `TargetId`; `RegisterAction(Keyword, Handler)` on the agent, for instant or timed actions; `ActionTrigger` decides when they run; `OnActionsCompleted` and `OnUnhandledAction`.
 - **Streamed speech**: the voice starts playing while the rest of the line is still being generated (`bStreamSpeech`, on by default) on Windows, Linux and Android. Other platforms play whole clips.
-- **Streamed replies** (experimental): `bStreamReplies` and `OnTextDelta`, so the first line is spoken while the reply is still being written.
 - **Lip sync** with `UNeocortexFaceAnimator`, on ARKit style mouth morph targets, timed to the voice.
 - **Perception**: interactables carry an id and an optional character id, are sent nearest first and capped (`MaxPerceivedEntities`), and the agent sends its own position.
 - **Conversation Flows**: `FlowState` on every reply.
