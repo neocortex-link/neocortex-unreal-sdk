@@ -7,7 +7,6 @@
 #include "NeocortexService.generated.h"
 
 class FNeocortexHttpStream;
-class FNeocortexChatStream;
 
 /** Delegate fired when a chat response is received. */
 DECLARE_DELEGATE_OneParam(FNeocortexChatDelegate, const FNeocortexChatResponseData&);
@@ -179,14 +178,7 @@ public:
                      FNeocortexGroupChatDelegate OnResponse, FNeocortexErrorDelegate OnFail,
                      FNeocortexCancelTokenPtr Token = nullptr);
 
-    /**
-     * EXPERIMENTAL. Starts a streamed chat turn for one character on /v3/chat/stream. Null on a
-     * platform without streaming. Stores the session id for the character when it arrives.
-     */
-    TSharedPtr<FNeocortexChatStream> RequestChatStream(const FString& CharacterId, const FString& Message,
-                     const FString& Metadata, const FString& Events);
-
-    /** Opens a POST whose body is read as it arrives. Used for streamed speech and replies. */
+    /** Opens a POST whose body is read as it arrives. Used for streamed speech. */
     TSharedPtr<FNeocortexHttpStream, ESPMode::ThreadSafe> OpenStream(const FString& Path, const FString& JsonBody,
                      const TCHAR* Accept, float TimeoutSeconds);
 

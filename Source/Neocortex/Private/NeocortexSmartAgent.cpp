@@ -8,8 +8,6 @@
 #include "NeocortexActionQueue.h"
 #include "NeocortexFunctionLibrary.h"
 #include "NeocortexSpeech.h"
-#include "NeocortexChatStream.h"
-#include "NeocortexHttpStream.h"
 #include "Engine/World.h"
 #include "Sound/SoundWaveProcedural.h"
 #include "Components/AudioComponent.h"
@@ -54,8 +52,6 @@ void UNeocortexSmartAgent::BeginPlay()
 void UNeocortexSmartAgent::EndPlay(const EEndPlayReason::Type EndPlayReason)
 {
     if (Service.IsValid()) Service->Abort(RequestToken);
-    if (ChatStream.IsValid()) ChatStream->Cancel();
-    ChatStream.Reset();
     // Cancel any in-flight playback and timers.
     ++PlaybackToken;
     StopAudio();
@@ -178,12 +174,6 @@ void UNeocortexSmartAgent::SendMessage(const FString& Message)
 
 void UNeocortexSmartAgent::SendChat(const FString& Message)
 {
-    if (bStreamReplies && FNeocortexHttpStream::IsSupported())
-    {
-        SendStreamedChat(Message);
-        return;
-    }
-
     Service->TextToText(
         ProjectId, Message,
         FNeocortexChatDelegate::CreateUObject(this, &UNeocortexSmartAgent::OnChatResponse),
@@ -288,102 +278,6 @@ void UNeocortexSmartAgent::SendAudioForAudio(const TArray<uint8>& WavData)
             }),
             FNeocortexErrorDelegate::CreateUObject(A, &UNeocortexSmartAgent::OnServiceFail),
             Token);
-    });
-}
-
-void UNeocortexSmartAgent::SendStreamedChat(const FString& Message)
-{
-    ChatStream = Service->RequestChatStream(ProjectId, Message, GetMetadata(), UNeocortexEventLogger::ConsumeLogsJson(this));
-    if (!ChatStream.IsValid())
-    {
-        bStreamReplies = false;
-        SendChat(Message);
-        return;
-    }
-
-    const int32 Token = ++PlaybackToken;
-    ReplyLines.Reset();
-    LineIndex = 0;
-    bLinesOpen = true;
-    bWaitingForLines = false;
-    bPlaybackStarted = false;
-    bSingleClipMode = false;
-    // Off and SingleAudio need the whole reply; the others play lines as they land.
-    const bool bProgressive = ChatLinesMode == EChatLinesMode::Text || ChatLinesMode == EChatLinesMode::PerLineAudio;
-
-    TWeakObjectPtr<UNeocortexSmartAgent> Weak(this);
-    ChatStream->OnDelta.BindLambda([Weak, Token](const FString& Text, int32 Line)
-    {
-        if (Weak.IsValid() && Token == Weak->PlaybackToken) Weak->OnTextDelta.Broadcast(Text, Line);
-    });
-    ChatStream->OnLine.BindLambda([Weak, Token, bProgressive](const FNeocortexChatLine& Line)
-    {
-        if (!Weak.IsValid() || Token != Weak->PlaybackToken) return;
-        UNeocortexSmartAgent* A = Weak.Get();
-        A->ReplyLines.Add(Line);
-        if (!bProgressive) return;
-        if (!A->bPlaybackStarted)
-        {
-            A->bPlaybackStarted = true;
-            A->State = EReplyState::Playing;
-            A->StopAudio();
-            A->StartPlayback(Token);
-        }
-        else if (A->bWaitingForLines)
-        {
-            A->bWaitingForLines = false;
-            A->PlayNextLine(Token);
-        }
-    });
-    ChatStream->OnCompleted.BindLambda([Weak, Token, bProgressive](const FNeocortexGroupChatResponse& Turn)
-    {
-        if (!Weak.IsValid() || Token != Weak->PlaybackToken) return;
-        UNeocortexSmartAgent* A = Weak.Get();
-        A->ChatStream.Reset();
-        A->bLinesOpen = false;
-
-        FNeocortexGroupMessage Speaker;
-        if (Turn.Messages.Num() > 0) Speaker = Turn.Messages[0];
-        if (Speaker.CharacterId.IsEmpty()) Speaker.CharacterId = A->ProjectId;
-        const FNeocortexChatResponseData Response = UNeocortexService::FlattenMessage(Speaker, Turn.SessionId, Turn.Metadata);
-        A->OnChat.Broadcast(Response);
-        A->CaptureActions(Response.Actions);
-
-        if (A->ChatLinesMode == EChatLinesMode::Off)
-        {
-            A->bRequestPending = false;
-            return;
-        }
-        // Lines the stream never sent separately still get played.
-        if (!bProgressive || !A->bPlaybackStarted)
-        {
-            A->PlayReply(Response);
-            return;
-        }
-        if (A->bWaitingForLines)
-        {
-            A->bWaitingForLines = false;
-            A->PlayNextLine(Token);
-        }
-    });
-    ChatStream->OnFailed.BindLambda([Weak, Token](const FNeocortexRequestError& Error)
-    {
-        if (!Weak.IsValid() || Token != Weak->PlaybackToken) return;
-        UNeocortexSmartAgent* A = Weak.Get();
-        A->ChatStream.Reset();
-        A->bLinesOpen = false;
-        if (!A->bPlaybackStarted)
-        {
-            A->OnServiceFail(Error);
-            return;
-        }
-        // Lines already played: the reply ends here rather than hanging mid way.
-        A->ReportError(Error);
-        if (A->bWaitingForLines)
-        {
-            A->bWaitingForLines = false;
-            A->PlayNextLine(Token);
-        }
     });
 }
 
@@ -495,7 +389,6 @@ void UNeocortexSmartAgent::StopSpeaking()
         W->GetTimerManager().ClearTimer(LineTimer);
     }
     bSingleClipActive = false;
-    bWaitingForLines = false;
     if (State != EReplyState::Idle)
     {
         State = EReplyState::Idle;
@@ -513,9 +406,6 @@ void UNeocortexSmartAgent::Abort()
 {
     if (Service.IsValid()) Service->Abort(RequestToken);
     RequestToken.Reset();
-    if (ChatStream.IsValid()) ChatStream->Cancel();
-    ChatStream.Reset();
-    bLinesOpen = false;
     bRequestPending = false;
     bExpectingAudio = false;
     StopSpeaking();
@@ -553,10 +443,7 @@ void UNeocortexSmartAgent::PlayReply(const FNeocortexChatResponseData& Response)
 
     ReplyLines = Response.ResolveLines();
     LineIndex = 0;
-    bLinesOpen = false;
-    bWaitingForLines = false;
     bSingleClipMode = false;
-    bPlaybackStarted = true;
     State = EReplyState::Playing;
     StartPlayback(++PlaybackToken);
 }
@@ -587,8 +474,7 @@ void UNeocortexSmartAgent::StartPlayback(int32 Token)
     {
         if (!Weak.IsValid() || Token != Weak->PlaybackToken) return;
         UNeocortexSmartAgent* A = Weak.Get();
-        // A streamed reply is still being written, so it cannot be voiced as one clip yet.
-        if (Mode == EChatLinesMode::SingleAudio || (bLow && !A->bLinesOpen))
+        if (Mode == EChatLinesMode::SingleAudio || bLow)
         {
             if (Mode != EChatLinesMode::SingleAudio)
             {
@@ -645,11 +531,6 @@ void UNeocortexSmartAgent::PlayNextLine(int32 Token)
 
     if (LineIndex >= ReplyLines.Num())
     {
-        if (bLinesOpen)
-        {
-            bWaitingForLines = true;
-            return;
-        }
         OnLinesDone(Token);
         return;
     }
@@ -661,12 +542,12 @@ void UNeocortexSmartAgent::PlayNextLine(int32 Token)
     {
         BeginLine(Line);
         LineIndex = Index + 1;
-        if (LineIndex >= ReplyLines.Num() && !bLinesOpen)
+        if (LineIndex >= ReplyLines.Num())
         {
             OnLinesDone(Token);
             return;
         }
-        if (LineIndex < ReplyLines.Num()) OnComposingNextLine.Broadcast();
+        OnComposingNextLine.Broadcast();
         ScheduleNextLine(LineDelay(Line.Text), Token);
         return;
     }

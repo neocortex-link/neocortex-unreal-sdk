@@ -4,7 +4,6 @@
 #include "NeocortexSerializer.h"
 #include "NeocortexFunctionLibrary.h"
 #include "NeocortexHttpStream.h"
-#include "NeocortexChatStream.h"
 #include "Containers/Ticker.h"
 #include "Neocortex.h"
 #include "JsonObjectConverter.h"
@@ -509,22 +508,6 @@ TSharedPtr<FNeocortexHttpStream, ESPMode::ThreadSafe> UNeocortexService::OpenStr
 
     TSharedPtr<FNeocortexHttpStream, ESPMode::ThreadSafe> Stream = MakeShared<FNeocortexHttpStream, ESPMode::ThreadSafe>();
     Stream->Open(HttpRef->GetBaseUrl() / Path, Headers, JsonBody, TimeoutSeconds);
-    return Stream;
-}
-
-TSharedPtr<FNeocortexChatStream> UNeocortexService::RequestChatStream(const FString& CharacterId, const FString& Message,
-                                                                      const FString& Metadata, const FString& Events)
-{
-    if (!FNeocortexHttpStream::IsSupported() || CharacterId.IsEmpty()) return nullptr;
-
-    const FString Body = ToJsonString(ChatBody({ CharacterId }, SessionRef->Get(CharacterId), Message, FString(), 0, Metadata, Events));
-    TSharedPtr<FNeocortexChatStream> Stream = MakeShared<FNeocortexChatStream>(CharacterId);
-    TWeakObjectPtr<UNeocortexService> WeakThis(this);
-    Stream->OnSession.BindLambda([WeakThis, CharacterId](const FString& SessionId)
-    {
-        if (WeakThis.IsValid() && !SessionId.IsEmpty()) WeakThis->SessionRef->Set(CharacterId, SessionId);
-    });
-    Stream->Attach(OpenStream(TEXT("chat/stream"), Body, TEXT("text/event-stream"), ChatTimeoutSeconds));
     return Stream;
 }
 

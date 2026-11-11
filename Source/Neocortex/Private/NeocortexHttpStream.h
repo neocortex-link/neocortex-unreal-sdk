@@ -47,27 +47,6 @@ private:
     void Finish(const FNeocortexRequestError* Error);
 };
 
-/** Reads Server-Sent Events from a byte stream. */
-class FNeocortexSseParser
-{
-public:
-    DECLARE_DELEGATE_TwoParams(FOnEvent, const FString& /*Name*/, const TSharedPtr<FJsonObject>& /*Data*/);
-
-    void Feed(const TArray<uint8>& Bytes);
-    /** Call when the body has ended, to flush a last event without a trailing blank line. */
-    void Complete();
-
-    FOnEvent OnEvent;
-
-private:
-    TArray<uint8> Pending;
-    FString EventName;
-    TArray<FString> DataLines;
-
-    void HandleLine(const FString& Line);
-    void Dispatch();
-};
-
 /**
  * Reads a streamed WAV body: one header declaring an unknown length, then 16-bit PCM. Samples
  * come out as they arrive; a sample split across two chunks is carried over.
